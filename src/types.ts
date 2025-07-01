@@ -2,7 +2,7 @@ export type XapiValueType = string | number | Uint8Array | Date | undefined;
 
 export interface Col {
   id: string;
-  value: XapiValueType;
+  value?: XapiValueType;
 }
 
 export type RowType = "insert" | "update" | "delete";

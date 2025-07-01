@@ -14,8 +14,16 @@ export class XapiRoot {
     this.datasets.push(dataset);
   }
 
+  getDataset(id: string): Dataset | undefined {
+    return this.datasets.find(dataset => dataset.id === id);
+  }
+
   addParameter(parameter: Parameter): void {
     this.parameters.params.push(parameter);
+  }
+
+  getParameter(id: string): Parameter | undefined {
+    return this.parameters.params.find(param => param.id === id);
   }
 
   setParameters(parameters: XapiParameters): void {
@@ -51,12 +59,15 @@ export class XapiRoot {
   }
 
 
+
+
 }
 
 export class Dataset {
   id: string;
-  constColumns: ConstColumn[] = [];
-  columns: Column[] = [];
+  // addColumn, addConstColumn을 사용해서만 추가할 수 있도록(_columnIndexMap을 사용하기 위해)
+  private constColumns: ConstColumn[] = [];
+  private columns: Column[] = [];
   rows: Row[] = [];
   private _columnIndexMap: Map<string, number> = new Map();
   constructor(id: string, constColumns: ConstColumn[] = [], columns: Column[] = [], rows: Row[] = []) {
@@ -94,7 +105,22 @@ export class Dataset {
   }
   getColumn(rowIdx: number, columnId: string): XapiValueType | undefined {
     if (rowIdx < this.rows.length) {
-      const col = this.rows[rowIdx].cols.find(col => col.id === columnId);
+      const colIndex = this.getColumnIndex(columnId);
+      if (colIndex === undefined) {
+        throw new Error(`Column with id ${columnId} not found in dataset ${this.id}`);
+      }
+      const col = this.rows[rowIdx].cols[colIndex];
+      return col?.value;
+    }
+    return undefined;
+  }
+  getOrgColumn(rowIdx: number, columnId: string): XapiValueType | undefined {
+    if (rowIdx < this.rows.length) {
+      const colIndex = this.getColumnIndex(columnId);
+      if (colIndex === undefined) {
+        throw new Error(`Column with id ${columnId} not found in dataset ${this.id}`);
+      }
+      const col = this.rows[rowIdx].orgRow?.[colIndex];
       return col?.value;
     }
     return undefined;
@@ -102,7 +128,11 @@ export class Dataset {
 
   setColumn(rowIdx: number, columnId: string, value: XapiValueType): void {
     if (rowIdx < this.rows.length) {
-      const colIndex = this.rows[rowIdx].cols.findIndex(col => col.id === columnId);
+      const colIndex = this.getColumnIndex(columnId);
+      if (colIndex === undefined) {
+        throw new Error(`Column with id ${columnId} not found in dataset ${this.id}`);
+      }
+
       if (colIndex >= 0) {
         this.rows[rowIdx].cols[colIndex] = { id: columnId, value };
       } else {

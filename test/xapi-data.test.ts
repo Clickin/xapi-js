@@ -176,7 +176,7 @@ describe("XapiData Tests", () => {
 
       expect(dataset.getColumn(0, "col1")).toBe("testValue");
       expect(dataset.getColumn(1, "col1")).toBeUndefined(); // row doesn't exist
-      expect(dataset.getColumn(0, "nonexistent")).toBeUndefined(); // column doesn't exist
+      expect(() => dataset.getColumn(0, "nonexistent")).toThrow("Column with id nonexistent not found in dataset test");
     });
 
     it("should set column value", () => {

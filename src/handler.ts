@@ -15,7 +15,6 @@ let _options: XapiOptions = {
 
 export function initXapi(options: XapiOptions) {
   // Initialize the XAPI with the provided options
-  console.log("Initializing XAPI with options:", options);
   // Here you would typically set up the environment, load necessary libraries, etc.
   // how to set added options to _options
   _options = {
@@ -66,7 +65,7 @@ export async function parse(reader: ReadableStream | string): Promise<XapiRoot> 
 
 async function parseDataset(initEvent: StartElementEvent, xmlParser: StaxXmlParser): Promise<Dataset> {
   const dataset = new Dataset(initEvent.attributes["id"]);
-  let currentRowIndx = -1;
+  let currentRowIndex = -1;
   for await (const event of xmlParser) {
     if (event.type === XmlEventType.END_ELEMENT && (event as EndElementEvent).localName === "Dataset") { // </Dataset>
       // End of dataset parsing
@@ -90,71 +89,74 @@ async function parseDataset(initEvent: StartElementEvent, xmlParser: StaxXmlPars
           });
           break;
         case "Row":
-          currentRowIndx = dataset.newRow();
-          dataset.rows[currentRowIndx].type = startEvent.attributes["type"] as RowType || undefined;
+          currentRowIndex = dataset.newRow();
+          dataset.rows[currentRowIndex].type = startEvent.attributes["type"] as RowType || undefined;
           break;
         case "Col": {
-          if (currentRowIndx < 0) {
-            throw new Error("Row must be defined before Col");
-          }
-          const colId = startEvent.attributes["id"];
-          const colIndex = dataset.getColumnIndex(colId);
-          if (colIndex === undefined || colIndex < 0) {
-            throw new Error(`Column with id ${colId} not found in dataset ${dataset.id}`);
-          }
-          const colCharEvent = (await xmlParser.next()).value;
-          if (!(colCharEvent.type === XmlEventType.CHARACTERS || colCharEvent.type === XmlEventType.CDATA)) {
-            break;
-          }
-          let value;
-          if (colCharEvent.type === XmlEventType.CDATA) {
-            value = (colCharEvent as CdataEvent).value || "";
-          }
-          else if (colCharEvent.type === XmlEventType.CHARACTERS) {
-            value = (colCharEvent as CharactersEvent).value || "";
-          }
-          let castedValue: XapiValueType = value;
-          if (_options.parseToTypes) {
-            const colType = dataset.columns[colIndex].type;
-            castedValue = convertToColumnType(value, colType);
-          }
-          dataset.rows[currentRowIndx].cols.push({ id: colId, value: castedValue });
+          await parseCol(xmlParser, startEvent, dataset, currentRowIndex, false);
           break;
         }
         case "OrgRow":
-          if (currentRowIndx < 0) {
+          if (currentRowIndex < 0) {
             throw new Error("Row must be defined before OrgRow");
           }
-          dataset.rows[currentRowIndx].orgRow = [];
+          dataset.rows[currentRowIndex].orgRow = [];
           for await (const orgRowEvent of xmlParser) {
             if (orgRowEvent.type === XmlEventType.END_ELEMENT && (orgRowEvent as EndElementEvent).localName === "OrgRow") {
               break; // Exit when we reach the end of OrgRow
             }
             if (orgRowEvent.type === XmlEventType.START_ELEMENT && (orgRowEvent as StartElementEvent).localName === "Col") {
               const orgColEvent = orgRowEvent as StartElementEvent;
-              const colId = orgColEvent.attributes["id"];
-              const colIndex = dataset.getColumnIndex(colId);
-              if (colIndex === undefined || colIndex < 0) {
-                throw new Error(`Column with id ${colId} not found in dataset ${dataset.id}`);
-              }
-              const value = orgColEvent.attributes["value"] || "";
-              let castedValue: XapiValueType = value;
-              if (_options.parseToTypes) {
-                const colType = dataset.columns[colIndex].type;
-                if (_options.parseToTypes) {
-                  castedValue = convertToColumnType(value, colType);
-                }
-              }
-              dataset.rows[currentRowIndx]?.orgRow?.push({ id: colId, value: castedValue });
+              await parseCol(xmlParser, orgColEvent, dataset, currentRowIndex, true);
             }
           }
       }
     }
   }
-
-
-
   return dataset;
+}
+
+async function parseCol(xmlParser: StaxXmlParser, startEvent: StartElementEvent, dataset: Dataset, currentRowIndex: number, isOrgRow: boolean): Promise<void> {
+  if (currentRowIndex < 0) {
+    throw new Error("Row must be defined before Col");
+  }
+  const colId = startEvent.attributes["id"];
+  const colIndex = dataset.getColumnIndex(colId);
+  if (colIndex === undefined || colIndex < 0) {
+    throw new Error(`Column with id ${colId} not found in dataset ${dataset.id}`);
+  }
+  const colCharEvent = (await xmlParser.next()).value;
+  if (!(colCharEvent.type === XmlEventType.CHARACTERS || colCharEvent.type === XmlEventType.CDATA)) {
+    if (!isOrgRow) {
+      dataset.rows[currentRowIndex].cols.push({ id: colId });
+    }
+    else {
+      // If it's an OrgRow, we still need to push the column with undefined value
+      dataset.rows[currentRowIndex].orgRow!.push({ id: colId });
+    }
+    return;
+  }
+  let value;
+  if (colCharEvent.type === XmlEventType.CDATA) {
+    value = (colCharEvent as CdataEvent).value || "";
+  }
+  else if (colCharEvent.type === XmlEventType.CHARACTERS) {
+    value = (colCharEvent as CharactersEvent).value || "";
+  }
+  let castedValue: XapiValueType = value;
+  if (_options.parseToTypes) {
+    const colType = dataset.getColumnInfo(colId)?.type;
+    if (!colType) {
+      throw new Error(`Column type for ${colId} not found in dataset ${dataset.id}`);
+    }
+    castedValue = convertToColumnType(value, colType);
+  }
+  if (!isOrgRow) {
+    dataset.rows[currentRowIndex].cols.push({ id: colId, value: castedValue });
+  } else {
+    // If it's an OrgRow, we push the column with the value
+    dataset.rows[currentRowIndex].orgRow!.push({ id: colId, value: castedValue });
+  }
 }
 
 
