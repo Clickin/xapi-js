@@ -1,13 +1,15 @@
-export type XapiValueType = string | number | Blob | null;
+export type XapiValueType = string | number | Uint8Array | Date | undefined;
 
 export interface Col {
   id: string;
   value: XapiValueType;
 }
 
+export type RowType = "insert" | "update" | "delete";
 export interface Row {
   cols: Col[];
   orgRow?: Col[];
+  type?: RowType;
 }
 
 export interface Rows {
@@ -35,7 +37,7 @@ export interface Parameter {
   value?: XapiValueType;
 }
 
-export interface Parameters {
+export interface XapiParameters {
   params: Parameter[];
 }
 
@@ -55,5 +57,5 @@ export const NexaVersion = {
 
 export interface XapiOptions {
   xapiVersion?: typeof XplatformVersion | typeof NexaVersion;
-  castToColumnType?: boolean; // If true, will cast values to their respective column types
+  parseToTypes?: boolean;
 }
