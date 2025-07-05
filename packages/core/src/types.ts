@@ -4,8 +4,8 @@ export interface Col {
   id: string;
   value?: XapiValueType;
 }
-
-export type RowType = "insert" | "update" | "delete";
+export const rowType = ["insert", "update", "delete"] as const;
+export type RowType = (typeof rowType)[number];
 export interface Row {
   cols: Col[];
   orgRow?: Col[];
@@ -16,7 +16,8 @@ export interface Rows {
   rows: Row[];
 }
 
-export type ColumnType = "STRING" | "INT" | "FLOAT" | "DECIMAL" | "BIGDECIMAL" | "DATE" | "DATETIME" | "TIME" | "BLOB";
+export const columnType = ["STRING", "INT", "FLOAT", "DECIMAL", "BIGDECIMAL", "DATE", "DATETIME", "TIME", "BLOB"] as const;
+export type ColumnType = (typeof columnType)[number];
 
 export interface Column {
   id: string;

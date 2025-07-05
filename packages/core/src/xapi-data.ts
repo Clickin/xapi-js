@@ -103,6 +103,11 @@ export class Dataset {
     }
     return undefined;
   }
+
+  getConstColumnInfo(columnId: string): ConstColumn | undefined {
+    return this.constColumns.find(col => col.id === columnId);
+  }
+
   getColumn(rowIdx: number, columnId: string): XapiValueType | undefined {
     if (rowIdx < this.rows.length) {
       const colIndex = this.getColumnIndex(columnId);

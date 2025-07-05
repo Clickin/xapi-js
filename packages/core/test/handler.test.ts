@@ -590,7 +590,87 @@ describe("Xapi Handler Tests", () => {
     expect(colValue).toBeUndefined();
   });
 
-  
+  it("should handle Column Size", async () => {
+    initXapi({ parseToTypes: true });
+
+    const xmlWithColumnSize = `<?xml version="1.0" encoding="UTF-8"?>
+    <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+      <Dataset id="test">
+        <ColumnInfo>
+          <ConstColumn id="smallConstCol" size="5" type="STRING" value="abcd" />
+          <ConstColumn id="largeConstCol" size="100" type="STRING" value="large text value" />
+          <Column id="smallCol" size="5" type="STRING" />
+          <Column id="largeCol" size="100" type="STRING" />
+        </ColumnInfo>
+        <Rows>
+          <Row>
+            <Col id="smallCol">small</Col>
+            <Col id="largeCol">large text value</Col>
+          </Row>
+        </Rows>
+      </Dataset>
+    </Root>`;
+
+    const xapiRoot = await parse(xmlWithColumnSize);
+    const dataset = xapiRoot.getDataset("test")!!;
+    const smallConstCol = dataset.getConstColumnInfo("smallConstCol");
+    const largeConstCol = dataset.getConstColumnInfo("largeConstCol");
+    const smallColumnInfo = dataset.getColumnInfo("smallCol");
+    const largeColumnInfo = dataset.getColumnInfo("largeCol");
+    expect(smallConstCol).toBeDefined();
+    expect(largeConstCol).toBeDefined();
+    expect(smallColumnInfo).toBeDefined();
+    expect(largeColumnInfo).toBeDefined();
+
+    expect(smallConstCol?.size).toBe(5);
+    expect(largeConstCol?.size).toBe(100);
+    expect(smallConstCol?.type).toBe("STRING");
+    expect(largeConstCol?.type).toBe("STRING");
+    expect(smallConstCol?.value).toBe("abcd");
+    expect(largeConstCol?.value).toBe("large text value");
+
+    expect(smallColumnInfo?.size).toBe(5);
+    expect(largeColumnInfo?.size).toBe(100);
+    expect(smallColumnInfo?.type).toBe("STRING");
+    expect(largeColumnInfo?.type).toBe("STRING");
+  });
+
+  it("should handle empty colum size in ColumnInfo", async () => {
+    initXapi({ parseToTypes: true });
+    const xmlWithEmptyColumnSize = `<?xml version="1.0" encoding="UTF-8"?>
+    <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+      <Dataset id="test">
+        <ColumnInfo>
+          <ConstColumn id="emptyConstCol"/>
+          <ConstColumn id="defaultConstCol" value="default"/>
+          <Column id="emptyCol"/>
+        </ColumnInfo>
+        <Rows>
+          <Row>
+            <Col id="emptyCol"></Col>
+          </Row>
+        </Rows>
+      </Dataset>
+    </Root>`;
+
+    const xapiRoot = await parse(xmlWithEmptyColumnSize);
+    const dataset = xapiRoot.datasets[0];
+    const emptyConstCol = dataset.getConstColumnInfo("emptyConstCol");
+    const defaultConstCol = dataset.getConstColumnInfo("defaultConstCol");
+    const emptyColInfo = dataset.getColumnInfo("emptyCol");
+    expect(emptyConstCol).toBeDefined();
+    expect(defaultConstCol).toBeDefined();
+    expect(emptyColInfo).toBeDefined();
+    // Expect size to be 0 for empty columns
+    expect(emptyConstCol?.size).toBe(0);
+    expect(emptyColInfo?.size).toBe(0);
+    expect(defaultConstCol?.size).toBe(0);
+    // Expect type to default to STRING for empty columns
+    expect(emptyConstCol?.type).toBe("STRING");
+    expect(emptyColInfo?.type).toBe("STRING");
+    expect(emptyConstCol?.value).toBe(undefined);
+    expect(defaultConstCol?.value).toBe("default");
+  });
 
   it("should handle invalid type conversions gracefully", async () => {
     initXapi({ parseToTypes: true });
@@ -717,5 +797,133 @@ describe("Xapi Handler Tests", () => {
 
     expect(xmlOutput).toContain('type="UNKNOWN"');
     expect(xmlOutput).toContain('testValue');
+  });
+
+  it("should throw error at Column type mismatch", async () => {
+    // testCoI is intended typo for testCol
+    const invalidXml = `<?xml version="1.0" encoding="UTF-8"?>
+    <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+      <Dataset id="invalid">
+        <ColumnInfo>
+          <Column id="testCol" size="10" type="ERROR_TYPE" />
+        </ColumnInfo>
+        <Rows>
+          <Row>
+            <Col id="testCol">not_a_number</Col>
+          </Row>
+        </Rows>
+      </Dataset>
+    </Root>`;
+    await expect(parse(invalidXml)).rejects.toThrow("Column type for testCol not found in dataset invalid");
+  });
+
+});
+
+describe("handler branches", async () => {
+  it("convertToColumnType switch branches", async () => {
+    const caseXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+  <Dataset id="test">
+    <ColumnInfo>
+      <Column id="intCol" size="10" type="INT" />
+      <Column id="bigdecimalCol" size="10" type="BIGDECIMAL" />
+      <Column id="floatCol" size="10" type="FLOAT" />
+      <Column id="decimalCol" size="10" type="DECIMAL" />
+      <Column id="dateCol" size="8" type="DATE" />
+      <Column id="datetimeCol" size="14" type="DATETIME" />
+      <Column id="timeCol" size="6" type="TIME" />
+      <Column id="blobCol" size="100" type="BLOB" />
+      <Column id="stringCol" size="50" type="STRING" />
+      <Column id="defaultCol" size="255" />
+    </ColumnInfo>
+    <Rows>
+      <Row>
+        <Col id="intCol">123</Col>
+        <Col id="bigdecimalCol">1234567890</Col>
+        <Col id="floatCol">3.14</Col>
+        <Col id="decimalCol">99.99</Col>
+        <Col id="dateCol">20230615</Col>
+        <Col id="datetimeCol">20230615120000</Col>
+        <Col id="timeCol">120000</Col>
+        <Col id="blobCol">dGVzdA==</Col>
+        <Col id="stringCol">test</Col>
+        <Col id="defaultCol">default value</Col>
+      </Row>
+      <Row>
+        <Col id="intCol">NaN</Col>
+        <Col id="bigdecimalCol">NaN</Col>
+        <Col id="floatCol">NaN</Col>
+        <Col id="decimalCol">NaN</Col>
+        <Col id="dateCol">not-a-date</Col>
+        <Col id="datetimeCol">not-a-datetime</Col>
+        <Col id="timeCol">not-a-time</Col>
+        <Col id="blobCol">cannot-decode</Col>
+        <Col id="stringCol"></Col>
+        <Col id="defaultCol"></Col>
+      </Row>
+    </Rows>
+  </Dataset>
+</Root>`;
+
+    const xapiRoot = await parse(caseXml);
+    const dataset = xapiRoot.datasets[0];
+    // propery parsed columns
+    const intCol1 = dataset.getColumn(0, "intCol");
+    const bigDecimalCol1 = dataset.getColumn(0, "bigdecimalCol");
+    const floatCol1 = dataset.getColumn(0, "floatCol");
+    const decimalCol1 = dataset.getColumn(0, "decimalCol");
+    const dateCol1 = dataset.getColumn(0, "dateCol");
+    const datetimeCol1 = dataset.getColumn(0, "datetimeCol");
+    const timeCol1 = dataset.getColumn(0, "timeCol");
+    const blobCol1 = dataset.getColumn(0, "blobCol");
+    const stringCol1 = dataset.getColumn(0, "stringCol");
+    const defaultCol1 = dataset.getColumn(0, "defaultCol");
+    expect(intCol1).toBe(123);
+    expect(bigDecimalCol1).toBe(1234567890);
+    expect(floatCol1).toBe(3.14);
+    expect(decimalCol1).toBe(99.99);
+    expect(dateCol1).toBeInstanceOf(Date);
+    const dateCol1Date = dateCol1 as Date;
+    expect(dateCol1Date.getFullYear()).toBe(2023);
+    expect(dateCol1Date.getMonth()).toBe(5); // June
+    expect(dateCol1Date.getDate()).toBe(15);
+    expect(datetimeCol1).toBeInstanceOf(Date);
+    const datetimeCol1Date = datetimeCol1 as Date;
+    expect(datetimeCol1Date.getFullYear()).toBe(2023);
+    expect(datetimeCol1Date.getMonth()).toBe(5); // June
+    expect(datetimeCol1Date.getDate()).toBe(15);
+    expect(datetimeCol1Date.getHours()).toBe(12);
+    expect(datetimeCol1Date.getMinutes()).toBe(0);
+    expect(datetimeCol1Date.getSeconds()).toBe(0);
+    expect(timeCol1).toBeInstanceOf(Date);
+    const timeCol1Date = timeCol1 as Date;
+    expect(timeCol1Date.getHours()).toBe(12);
+    expect(timeCol1Date.getMinutes()).toBe(0);
+    expect(timeCol1Date.getSeconds()).toBe(0);
+    expect(blobCol1).toBeInstanceOf(Uint8Array);
+    expect(blobCol1).toEqual(new Uint8Array([116, 101, 115, 116])); // "test" in base64
+    expect(stringCol1).toBe("test");
+    expect(defaultCol1).toBe("default value");
+    // not properly parsed columns
+    const intCol2 = dataset.getColumn(1, "intCol");
+    const bigDecimalCol2 = dataset.getColumn(1, "bigdecimalCol");
+    const floatCol2 = dataset.getColumn(1, "floatCol");
+    const decimalCol2 = dataset.getColumn(1, "decimalCol");
+    const dateCol2 = dataset.getColumn(1, "dateCol");
+    const datetimeCol2 = dataset.getColumn(1, "datetimeCol");
+    const timeCol2 = dataset.getColumn(1, "timeCol");
+    const blobCol2 = dataset.getColumn(1, "blobCol");
+    const stringCol2 = dataset.getColumn(1, "stringCol");
+    const defaultCol2 = dataset.getColumn(1, "defaultCol");
+    expect(intCol2).toBe("NaN");
+    expect(bigDecimalCol2).toBe("NaN");
+    expect(floatCol2).toBe("NaN");
+    expect(decimalCol2).toBe("NaN");
+    expect(dateCol2).toBe("not-a-date");
+    expect(datetimeCol2).toBe("not-a-datetime");
+    expect(timeCol2).toBe("not-a-time");
+    expect(blobCol2).toBe("cannot-decode");
+    expect(stringCol2).toBe(undefined);
+    expect(defaultCol2).toBe(undefined);
   });
 });

@@ -56,19 +56,6 @@ importers:
         specifier: ^0.4.5
         version: 0.4.5(vitest@3.2.4(@types/node@20.19.4)(@vitest/ui@3.2.4)(jsdom@26.1.0))
 
-  packages/adaptor-hono:
-    dependencies:
-      '@xapi-js/core':
-        specifier: workspace:*
-        version: link:../core
-      hono:
-        specifier: ^3.0.0
-        version: 3.12.12
-    devDependencies:
-      typescript:
-        specifier: ^5.0.0
-        version: 5.8.3
-
   packages/adaptor-nestjs:
     dependencies:
       '@xapi-js/core':

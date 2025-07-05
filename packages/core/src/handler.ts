@@ -1,5 +1,5 @@
 import { CdataEvent, CharactersEvent, EndElementEvent, StartElementEvent, StaxXmlParser, StaxXmlWriter, XmlEventType } from "stax-xml";
-import { Col, ColumnType, NexaVersion, Parameter, RowType, XapiOptions, XapiValueType } from "./types";
+import { Col, columnType, ColumnType, NexaVersion, Parameter, RowType, XapiOptions, XapiValueType } from "./types";
 import { base64ToUint8Array, dateToString, makeParseEntities, makeWriterEntities, stringToDate, StringWritableStream, uint8ArrayToBase64 } from "./utils";
 import { Dataset, XapiRoot } from "./xapi-data";
 
@@ -50,10 +50,7 @@ export async function parse(reader: ReadableStream | string): Promise<XapiRoot> 
         case "Parameter":
           let paramValue: XapiValueType = undefined;
           const charEvent = (await xmlParser.next()).value;
-          if (charEvent.type === XmlEventType.CDATA) {
-            paramValue = (charEvent as CdataEvent).value;
-          }
-          else if (charEvent.type === XmlEventType.CHARACTERS) {
+          if (charEvent.type === XmlEventType.CHARACTERS) {
             paramValue = (charEvent as CharactersEvent).value;
           }
           xapiRoot.addParameter({
@@ -86,7 +83,7 @@ async function parseDataset(initEvent: StartElementEvent, xmlParser: StaxXmlPars
             id: startEvent.attributes["id"],
             size: parseInt(startEvent.attributes["size"] || "0", 10),
             type: startEvent.attributes["type"] as ColumnType || "STRING",
-            value: startEvent.attributes["value"] || ""
+            value: startEvent.attributes["value"] || undefined,
           });
           break;
         case "Column":
@@ -143,11 +140,11 @@ async function parseCol(xmlParser: StaxXmlParser, startEvent: StartElementEvent,
   }
   let castedValue: XapiValueType = value;
   if (_options.parseToTypes) {
-    const colType = dataset.getColumnInfo(colId)?.type;
-    if (!colType) {
+    const columnInfo = dataset.getColumnInfo(colId);
+    if (!columnInfo || columnType.includes(columnInfo.type) === false) {
       throw new Error(`Column type for ${colId} not found in dataset ${dataset.id}`);
     }
-    castedValue = convertToColumnType(value, colType);
+    castedValue = convertToColumnType(value, columnInfo.type as ColumnType);
   }
   if (!isOrgRow) {
     dataset.rows[currentRowIndex].cols.push({ id: colId, value: castedValue });

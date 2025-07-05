@@ -49,45 +49,59 @@ export function uint8ArrayToBase64(uint8Array: Uint8Array): string {
 
   // btoa()를 사용하여 binary string을 base64로 인코딩
   return btoa(binaryString);
-} export function stringToDate(value: string): Date | undefined {
+}
+
+export function stringToDate(value: string): Date | undefined {
   if (!value) return undefined;
-  const strlen = value.length;
-  switch (strlen) {
-    case 8: // yyyyMMdd
-      return new Date(
-        parseInt(value.substring(0, 4), 10),
-        parseInt(value.substring(4, 6), 10) - 1,
-        parseInt(value.substring(6, 8), 10)
-      );
-    case 14: // yyyyMMddHHmmss
-      return new Date(
-        parseInt(value.substring(0, 4), 10),
-        parseInt(value.substring(4, 6), 10) - 1,
-        parseInt(value.substring(6, 8), 10),
-        parseInt(value.substring(8, 10), 10),
-        parseInt(value.substring(10, 12), 10),
-        parseInt(value.substring(12, 14), 10)
-      );
-    case 16: // yyyyMMddHHmmssSSS
-      return new Date(
-        parseInt(value.substring(0, 4), 10),
-        parseInt(value.substring(4, 6), 10) - 1,
-        parseInt(value.substring(6, 8), 10),
-        parseInt(value.substring(8, 10), 10),
-        parseInt(value.substring(10, 12), 10),
-        parseInt(value.substring(12, 14), 10),
-        parseInt(value.substring(14, 16), 10)
-      );
-    case 6: // HHmmss
-      return new Date(
-        1970,
-        0,
-        1,
-        parseInt(value.substring(0, 2), 10),
-        parseInt(value.substring(2, 4), 10),
-        parseInt(value.substring(4, 6), 10)
-      );
+  let year: number;
+  let month: number;
+  let day: number;
+  let hours: number = 0;
+  let minutes: number = 0;
+  let seconds: number = 0;
+  let milliseconds: number = 0;
+  if (value.length < 6 || value.length > 16) {
+    // 잘못된 형식의 날짜 문자열인 경우 undefined 반환
+    return undefined;
   }
+  // 문자열 길이에 따라 날짜를 파싱
+  // yyyyMMdd, yyyyMMddHHmmss, yyyyMMddHHmmssSSS, HHmmss 형식 지원
+  // yyyyMMdd: 8자리, yyyyMMddHHmmss: 14자리, yyyyMMddHHmmssSSS: 16자리, HHmmss: 6자리
+  if (value.length >= 8) {
+    year = parseInt(value.substring(0, 4), 10);
+    month = parseInt(value.substring(4, 6), 10) - 1; // 월은 0부터 시작
+    day = parseInt(value.substring(6, 8), 10);
+  } else {
+    year = 1970; // 기본값
+    month = 0; // 기본값
+    day = 1; // 기본값
+  }
+  if (value.length === 6) {
+    hours = parseInt(value.substring(0, 2), 10);
+    minutes = parseInt(value.substring(2, 4), 10);
+    seconds = parseInt(value.substring(4, 6), 10);
+  } else if (value.length >= 10) {
+    hours = parseInt(value.substring(8, 10), 10);
+    minutes = parseInt(value.substring(10, 12), 10);
+    seconds = parseInt(value.substring(12, 14), 10);
+  }
+  if (value.length === 16) {
+    milliseconds = parseInt(value.substring(14, 16), 10);
+  }
+  // 19700101 000000 ~ 99991231 235959.9999999 까지 지원
+  // 검증
+  if (year < 1970 || year > 9999 || month < 0 || month > 11 || day < 1 || day > 31 ||
+    hours < 0 || hours > 23 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59 ||
+    milliseconds < 0 || milliseconds > 999) {
+    return undefined;
+  }
+  // Date 객체 생성
+  const date = new Date(year, month, day, hours, minutes, seconds, milliseconds);
+  // Date 객체가 유효한지 확인
+  if (isNaN(date.getTime())) {
+    return undefined; // 유효하지 않은 날짜
+  }
+  return date;
 }
 
 export function dateToString(date: Date, type: Extract<ColumnType, "DATE" | "DATETIME" | "TIME">): string {
