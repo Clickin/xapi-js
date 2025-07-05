@@ -1,6 +1,6 @@
 import { CdataEvent, CharactersEvent, EndElementEvent, StartElementEvent, StaxXmlParser, StaxXmlWriter, XmlEventType } from "stax-xml";
 import { Col, columnType, ColumnType, NexaVersion, Parameter, RowType, XapiOptions, XapiValueType } from "./types";
-import { base64ToUint8Array, dateToString, makeParseEntities, makeWriterEntities, stringToDate, StringWritableStream, uint8ArrayToBase64 } from "./utils";
+import { convertToColumnType, convertToString, dateToString, makeParseEntities, makeWriterEntities, StringWritableStream, uint8ArrayToBase64 } from "./utils";
 import { Dataset, XapiRoot } from "./xapi-data";
 
 const defaultOptions: XapiOptions = {
@@ -155,58 +155,6 @@ async function parseCol(xmlParser: StaxXmlParser, startEvent: StartElementEvent,
 }
 
 
-function convertToColumnType(value: XapiValueType, type: ColumnType): XapiValueType {
-  if (value === undefined || value === null || value === "") {
-    return value;
-  }
-
-  switch (type) {
-    case "INT":
-    case "BIGDECIMAL":
-      const intValue = parseInt(value as string, 10);
-      return isNaN(intValue) ? value : intValue;
-    case "FLOAT":
-      const floatValue = parseFloat(value as string);
-      return isNaN(floatValue) ? value : floatValue;
-    case "DECIMAL":
-      const decimalValue = parseFloat(value as string);
-      return isNaN(decimalValue) ? value : decimalValue;
-    case "DATE":
-    case "DATETIME":
-    case "TIME":
-      return stringToDate(value as string) || value;
-    case "BLOB":
-      try {
-        return base64ToUint8Array(value as string);
-      } catch {
-        return value;
-      }
-    default:
-      return value; // Default to string
-  }
-}
-
-function convertToString(value: XapiValueType, type: ColumnType): string {
-  if (value === undefined || value === null) {
-    return "";
-  }
-  switch (type) {
-    case "INT":
-    case "BIGDECIMAL":
-    case "FLOAT":
-    case "DECIMAL":
-      return String(value);
-    case "DATE":
-    case "DATETIME":
-    case "TIME":
-      return dateToString(value as Date, type);
-    case "BLOB":
-      return uint8ArrayToBase64(value as Uint8Array);
-    default:
-      return String(value); // Default to string
-  }
-}
-
 export async function writeString(root: XapiRoot): Promise<string> {
   const stringStream = new StringWritableStream();
   await write(stringStream, root);
@@ -244,7 +192,7 @@ async function writeParameters(writer: StaxXmlWriter, iterator: IterableIterator
     await writer.writeStartElement("Parameters");
     for (const parameter of iterator) {
       await writer.writeStartElement("Parameter", { attributes: { id: parameter.id } })
-      if (parameter.type) {
+      if (parameter.type !== undefined) {
         await writer.writeAttribute("type", parameter.type);
       }
       if (parameter.value !== undefined) {

@@ -1,4 +1,4 @@
-import { ColumnType } from "./types";
+import { ColumnType, ColumnTypeError, XapiValueType } from "./types";
 
 export function makeParseEntities(): { entity: string; value: string; }[] {
   // This function can be used to create entities for parsing
@@ -154,4 +154,49 @@ export function stringToReadableStream(str: string): ReadableStream<Uint8Array> 
       controller.close();
     }
   });
+}
+export function convertToColumnType(value: XapiValueType, type: ColumnType): XapiValueType {
+  switch (type) {
+    case "INT":
+    case "BIGDECIMAL":
+      const intValue = parseInt(value as string, 10);
+      return isNaN(intValue) ? value : intValue;
+    case "FLOAT":
+      const floatValue = parseFloat(value as string);
+      return isNaN(floatValue) ? value : floatValue;
+    case "DECIMAL":
+      const decimalValue = parseFloat(value as string);
+      return isNaN(decimalValue) ? value : decimalValue;
+    case "DATE":
+    case "DATETIME":
+    case "TIME":
+      return stringToDate(value as string) || value;
+    case "BLOB":
+      try {
+        return base64ToUint8Array(value as string);
+      } catch {
+        return value;
+      }
+    case "STRING":
+      return value as string; // No conversion needed for STRING type
+    default:
+      throw new ColumnTypeError(`Unsupported column type: ${type}`);
+  } // this line is reported as not covered by test, but it's not possible to cover it
+}
+export function convertToString(value: XapiValueType, type: ColumnType): string {
+  switch (type) {
+    case "INT":
+    case "BIGDECIMAL":
+    case "FLOAT":
+    case "DECIMAL":
+      return String(value);
+    case "DATE":
+    case "DATETIME":
+    case "TIME":
+      return dateToString(value as Date, type);
+    case "BLOB":
+      return uint8ArrayToBase64(value as Uint8Array);
+    default:
+      return String(value); // Default to string
+  }
 }

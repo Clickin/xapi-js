@@ -60,3 +60,10 @@ export interface XapiOptions {
   xapiVersion?: typeof XplatformVersion | typeof NexaVersion;
   parseToTypes?: boolean;
 }
+
+export class ColumnTypeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ColumnTypeError";
+  }
+}

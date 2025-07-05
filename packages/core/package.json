@@ -14,6 +14,8 @@
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts",
     "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
     "prepublishOnly": "pnpm build"
   },
   "files": [

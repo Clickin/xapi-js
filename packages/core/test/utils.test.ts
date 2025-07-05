@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { ColumnType, ColumnTypeError } from "../src";
 import {
+  StringWritableStream,
   base64ToUint8Array,
+  convertToColumnType,
   dateToString,
   makeParseEntities,
   makeWriterEntities,
   stringToDate,
-  uint8ArrayToBase64,
-  StringWritableStream,
-  stringToReadableStream
+  stringToReadableStream,
+  uint8ArrayToBase64
 } from "../src/utils";
 
 describe("Utils Tests", () => {
@@ -116,6 +118,16 @@ describe("Utils Tests", () => {
       const result = stringToDate("2023-06-15");
       expect(result).toBeUndefined();
     });
+
+    it("should return undefined for string length less than 6", () => {
+      const result = stringToDate("123");
+      expect(result).toBeUndefined();
+    });
+
+    it("should return undefined for string length greater than 16", () => {
+      const result = stringToDate("20230615143022999");
+      expect(result).toBeUndefined();
+    });
   });
 
   describe("dateToString", () => {
@@ -205,4 +217,17 @@ describe("Utils Tests", () => {
       expect(result).toBe(testString);
     });
   });
+  describe("string coversion functions", () => {
+    it("convertToColumnType branch", async () => {
+      expect(convertToColumnType("123", "INT")).toBe(123);
+      expect(convertToColumnType("123.45", "FLOAT")).toBe(123.45);
+      expect(convertToColumnType("20230615", "DATE")).toBeInstanceOf(Date);
+      expect(convertToColumnType("20230615143022", "DATETIME")).toBeInstanceOf(Date);
+      expect(convertToColumnType("143022", "TIME")).toBeInstanceOf(Date);
+      expect(convertToColumnType("Hello", "STRING")).toBe("Hello");
+      expect(convertToColumnType("SGVsbG8gV29ybGQ=", "BLOB")).toBeInstanceOf(Uint8Array);
+      expect(convertToColumnType("Hello", "BLOB")).toBe("Hello");
+      expect(() => convertToColumnType("123", "UNKNOWN" as ColumnType)).toThrow(ColumnTypeError); // Unsupported
+    })
+  })
 });

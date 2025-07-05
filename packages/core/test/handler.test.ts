@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initXapi, parse, write } from "../src/handler";
+import { initXapi, parse, write, writeString } from "../src/handler";
 import { NexaVersion, XapiOptions, XplatformVersion } from "../src/types";
 import { Dataset, XapiRoot } from "../src/xapi-data";
 
@@ -245,6 +245,9 @@ describe("Xapi Handler Tests", () => {
 
     // Add parameters with different types
     root.addParameter({ id: "stringParam", type: "STRING", value: "test" });
+    root.addParameter({ id: "typedParam", type: "INT", value: 123 });
+    root.addParameter({ id: "typedParam", type: "INT", value: 123 });
+    root.addParameter({ id: "typedParam", type: "INT", value: 123 });
     root.addParameter({ id: "intParam", type: "INT", value: 123 });
     root.addParameter({ id: "dateParam", type: "DATE", value: new Date(2023, 5, 15) });
     root.addParameter({ id: "blobParam", type: "BLOB", value: new Uint8Array([72, 101, 108, 108, 111]) });
@@ -267,7 +270,25 @@ describe("Xapi Handler Tests", () => {
     expect(xmlOutput).toContain('id="dateParam"');
     expect(xmlOutput).toContain('value="20230615"');
     expect(xmlOutput).toContain('id="blobParam"');
+    expect(xmlOutput).toContain('value="SGVsbG8="');
     expect(xmlOutput).toContain('<Dataset id="test">');
+  });
+
+  it("should handle parameter with number value in write", async () => {
+    const root = new XapiRoot();
+    root.addParameter({
+      id: "numberParam",
+      type: "INT",
+      value: 42
+    });
+
+    const writer = new StringWritableStream();
+    await write(writer, root);
+    const xmlOutput = writer.getResult();
+
+    expect(xmlOutput).toContain('id="numberParam"');
+    expect(xmlOutput).toContain('type="INT"');
+    expect(xmlOutput).toContain('value="42"');
   });
 
   it("should write empty root without parameters or datasets", async () => {
@@ -316,6 +337,24 @@ describe("Xapi Handler Tests", () => {
     dataset.addColumn({ id: "col1", size: 10, type: "STRING" });
     const rowIndex = dataset.newRow();
     dataset.rows[rowIndex].cols.push({ id: "col1", value: undefined });
+
+    root.addDataset(dataset);
+
+    const writer = new StringWritableStream();
+    await write(writer, root);
+    const xmlOutput = writer.getResult();
+
+    expect(xmlOutput).toContain('<Col id="col1"');
+    expect(xmlOutput).toContain('/>'); // self-closing tag
+  });
+
+  it("should write column with null value as self-closing", async () => {
+    const root = new XapiRoot();
+    const dataset = new Dataset("test");
+
+    dataset.addColumn({ id: "col1", size: 10, type: "STRING" });
+    const rowIndex = dataset.newRow();
+    dataset.rows[rowIndex].cols.push({ id: "col1", value: null });
 
     root.addDataset(dataset);
 
@@ -751,6 +790,55 @@ describe("Xapi Handler Tests", () => {
     expect(xmlOutput).toContain('value="143022"');
   });
 
+  it("should handle parameter with number value in write (specific test for line 192)", async () => {
+    const root = new XapiRoot();
+    root.addParameter({
+      id: "testNumberParam",
+      type: "INT",
+      value: 12345
+    });
+
+    const writer = new StringWritableStream();
+    await write(writer, root);
+    const xmlOutput = writer.getResult();
+
+    expect(xmlOutput).toContain('id="testNumberParam"');
+    expect(xmlOutput).toContain('type="INT"');
+    expect(xmlOutput).toContain('value="12345"');
+  });
+
+  it("should handle parameter with boolean value in write (specific test for line 192)", async () => {
+    const root = new XapiRoot();
+    root.addParameter({
+      id: "testBooleanParam",
+      type: "STRING", // Type doesn't matter much for this test, as it's about the value conversion
+      value: true
+    });
+
+    const writer = new StringWritableStream();
+    await write(writer, root);
+    const xmlOutput = writer.getResult();
+
+    expect(xmlOutput).toContain('id="testBooleanParam"');
+    expect(xmlOutput).toContain('value="true"');
+  });
+
+  it("should handle parameter with boolean value in write (specific test for line 192)", async () => {
+    const root = new XapiRoot();
+    root.addParameter({
+      id: "testBooleanParam",
+      type: "STRING", // Type doesn't matter much for this test, as it's about the value conversion
+      value: true
+    });
+
+    const writer = new StringWritableStream();
+    await write(writer, root);
+    const xmlOutput = writer.getResult();
+
+    expect(xmlOutput).toContain('id="testBooleanParam"');
+    expect(xmlOutput).toContain('value="true"');
+  });
+
   it("should handle CDATA values in OrgRow with parseToTypes enabled", async () => {
     initXapi({ parseToTypes: true });
 
@@ -926,4 +1014,62 @@ describe("handler branches", async () => {
     expect(stringCol2).toBe(undefined);
     expect(defaultCol2).toBe(undefined);
   });
+});
+
+describe("convertToString", async () => {
+  it("convertToString switch branches", async () => {
+    const caseXapiRoot = new XapiRoot();
+    const dataset = new Dataset("test");
+    dataset.addColumn({ id: "intCol", size: 10, type: "INT" });
+    dataset.addColumn({ id: "bigdecimalCol", size: 10, type: "BIGDECIMAL" });
+    dataset.addColumn({ id: "floatCol", size: 10, type: "FLOAT" });
+    dataset.addColumn({ id: "decimalCol", size: 10, type: "DECIMAL" });
+    dataset.addColumn({ id: "dateCol", size: 8, type: "DATE" });
+    dataset.addColumn({ id: "datetimeCol", size: 14, type: "DATETIME" });
+    dataset.addColumn({ id: "timeCol", size: 6, type: "TIME" });
+    dataset.addColumn({ id: "blobCol", size: 100, type: "BLOB" });
+    dataset.addColumn({ id: "stringCol", size: 50, type: "STRING" });
+    dataset.newRow();
+    dataset.setColumn(0, "intCol", 123);
+    dataset.setColumn(0, "bigdecimalCol", 1234567890);
+    dataset.setColumn(0, "floatCol", 3.14);
+    dataset.setColumn(0, "decimalCol", 99.99);
+    dataset.setColumn(0, "dateCol", new Date(2023, 5, 15));
+    dataset.setColumn(0, "datetimeCol", new Date(2023, 5, 15, 12, 0, 0));
+    dataset.setColumn(0, "timeCol", new Date(2023, 5, 15, 12, 0, 0));
+    dataset.setColumn(0, "blobCol", new Uint8Array([116, 101, 115, 116])); // "test" in base64
+    dataset.setColumn(0, "stringCol", "test");
+    caseXapiRoot.addDataset(dataset);
+    const xmlString = await writeString(caseXapiRoot);
+    expect(xmlString).toContain('<Col id="intCol">123</Col>');
+    expect(xmlString).toContain('<Col id="bigdecimalCol">1234567890</Col>');
+    expect(xmlString).toContain('<Col id="floatCol">3.14</Col>');
+    expect(xmlString).toContain('<Col id="decimalCol">99.99</Col>');
+    expect(xmlString).toContain('<Col id="dateCol">20230615</Col>');
+    expect(xmlString).toContain('<Col id="datetimeCol">20230615120000</Col>');
+    expect(xmlString).toContain('<Col id="timeCol">120000</Col>');
+    expect(xmlString).toContain('<Col id="blobCol">dGVzdA==</Col>'); // "test" in base64
+    expect(xmlString).toContain('<Col id="stringCol">test</Col>');
+  });
+});
+
+describe("writeString", () => {
+  it("should write the correct XML string", async () => {
+    const xapiRoot = new XapiRoot();
+    // Add test data to xapiRoot
+    const result = await writeString(xapiRoot);
+    expect(result).toContain("<Root");
+    expect(result).toContain("</Root>");
+  });
+  it("should handle empty ConstColumn", async () => {
+    const xapiRoot = new XapiRoot();
+    const dataset = new Dataset("test");
+    dataset.addConstColumn({
+      id: "emptyConstCol", type: "STRING", value: undefined, size: 0
+    }); // No value provided
+    xapiRoot.addDataset(dataset);
+
+    const result = await writeString(xapiRoot);
+    expect(result).toContain('<ConstColumn id="emptyConstCol" size="0" type="STRING" value=""/>');
+  })
 });
