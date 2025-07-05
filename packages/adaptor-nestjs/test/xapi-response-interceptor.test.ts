@@ -2,13 +2,24 @@ import { describe, it, expect, vi } from 'vitest';
 import { of, firstValueFrom } from 'rxjs';
 import { XapiResponseInterceptor } from '../src/xapi-response-interceptor';
 import { CallHandler, ExecutionContext } from '@nestjs/common';
-import { XapiRoot, Dataset, Column, Row, Col } from '@xapi-js/core';
+import { XapiRoot, Dataset, Column, writeString } from '@xapi-js/core';
+
+// Mock the writeString function from @xapi-js/core
+vi.mock('@xapi-js/core', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    writeString: vi.fn(actual.writeString), // Use the actual implementation for mocking
+  };
+});
 
 describe('XapiResponseInterceptor', () => {
   let interceptor: XapiResponseInterceptor;
 
   beforeEach(() => {
     interceptor = new XapiResponseInterceptor();
+    // Reset the mock before each test
+    vi.mocked(writeString).mockClear(); // Use writeString directly
   });
 
   it('should be defined', () => {
@@ -77,5 +88,26 @@ describe('XapiResponseInterceptor', () => {
 
     const observableResult = interceptor.intercept(mockContext, mockCallHandler);
     await expect(firstValueFrom(observableResult)).rejects.toThrow('Handler did not return an XapiRoot instance');
+  });
+
+  it('should re-throw error from writeString', async () => {
+    const xapiRootOutput = new XapiRoot();
+
+    const mockContext = {
+      switchToHttp: () => ({
+        getRequest: () => ({}),
+        getResponse: () => ({}),
+      }),
+    } as ExecutionContext;
+
+    const mockCallHandler = {
+      handle: () => of(xapiRootOutput),
+    } as CallHandler;
+
+    const testError = new Error('Test writeString error');
+    vi.mocked(writeString).mockRejectedValue(testError);
+
+    const observableResult = interceptor.intercept(mockContext, mockCallHandler);
+    await expect(firstValueFrom(observableResult)).rejects.toThrow(testError);
   });
 });
