@@ -138,22 +138,12 @@ async function parseCol(xmlParser: StaxXmlParser, startEvent: StartElementEvent,
     throw new Error(`Column with id ${colId} not found in dataset ${dataset.id}`);
   }
   const colCharEvent = (await xmlParser.next()).value;
-  if (!(colCharEvent.type === XmlEventType.CHARACTERS || colCharEvent.type === XmlEventType.CDATA)) {
-    if (!isOrgRow) {
-      dataset.rows[currentRowIndex].cols.push({ id: colId });
-    }
-    else {
-      // If it's an OrgRow, we still need to push the column with undefined value
-      dataset.rows[currentRowIndex].orgRow!.push({ id: colId });
-    }
-    return;
-  }
   let value;
   if (colCharEvent.type === XmlEventType.CDATA) {
-    value = (colCharEvent as CdataEvent).value || "";
+    value = (colCharEvent as CdataEvent).value;
   }
   else if (colCharEvent.type === XmlEventType.CHARACTERS) {
-    value = (colCharEvent as CharactersEvent).value || "";
+    value = (colCharEvent as CharactersEvent).value;
   }
   let castedValue: XapiValueType = value;
   if (_options.parseToTypes) {

@@ -4,7 +4,7 @@ export function makeParseEntities(): { entity: string; value: string; }[] {
   // This function can be used to create entities for parsing
   const entities: { entity: string; value: string; }[] = [];
   for (let i = 1; i <= 32; i++) {
-    entities.push({ entity: String.fromCharCode(i), value: `&#${i};` });
+    entities.push({ entity: `&#${i};`, value: String.fromCharCode(i) });
   }
   return entities;
 }

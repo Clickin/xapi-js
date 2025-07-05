@@ -133,11 +133,7 @@ export class Dataset {
         throw new Error(`Column with id ${columnId} not found in dataset ${this.id}`);
       }
 
-      if (colIndex >= 0) {
-        this.rows[rowIdx].cols[colIndex] = { id: columnId, value };
-      } else {
-        throw new Error(`Column with id ${columnId} not found in dataset ${this.id}`);
-      }
+      this.rows[rowIdx].cols[colIndex] = { id: columnId, value };
     } else {
       throw new Error(`Row index ${rowIdx} out of bounds in dataset ${this.id}`);
     }

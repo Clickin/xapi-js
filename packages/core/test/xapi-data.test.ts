@@ -41,6 +41,15 @@ describe("XapiData Tests", () => {
       expect(root.parameters.params[0]).toBe(parameter);
     });
 
+    it("should get parameter by id", () => {
+      const root = new XapiRoot();
+      const parameter: Parameter = { id: "test", value: "value" };
+      root.addParameter(parameter);
+
+      expect(root.getParameter("test")).toBe(parameter);
+      expect(root.getParameter("nonExistent")).toBeUndefined();
+    });
+
     it("should set parameters", () => {
       const root = new XapiRoot();
       const parameters = { params: [{ id: "test1", value: "value1" }, { id: "test2", value: "value2" }] };
@@ -95,8 +104,8 @@ describe("XapiData Tests", () => {
     it("should create empty dataset", () => {
       const dataset = new Dataset("test");
       expect(dataset.id).toBe("test");
-      expect(dataset.constColumns).toEqual([]);
-      expect(dataset.columns).toEqual([]);
+      expect(dataset.constColumnSize()).toBe(0);
+      expect(dataset.columnSize()).toBe(0);
       expect(dataset.rows).toEqual([]);
       expect(dataset.constColumnSize()).toBe(0);
       expect(dataset.columnSize()).toBe(0);
@@ -109,8 +118,8 @@ describe("XapiData Tests", () => {
       const rows: Row[] = [{ cols: [{ id: "col1", value: "value1" }] }];
 
       const dataset = new Dataset("test", constColumns, columns, rows);
-      expect(dataset.constColumns).toBe(constColumns);
-      expect(dataset.columns).toBe(columns);
+      expect(dataset.constColumnSize()).toBe(constColumns.length);
+      expect(dataset.columnSize()).toBe(columns.length);
       expect(dataset.rows).toBe(rows);
     });
 
@@ -198,6 +207,15 @@ describe("XapiData Tests", () => {
       }).toThrow("Column with id nonexistent not found in dataset test");
     });
 
+    it("should throw error when row index is out of bounds", () => {
+      const dataset = new Dataset("test");
+      dataset.addColumn({ id: "col1", size: 10, type: "STRING" });
+
+      expect(() => {
+        dataset.setColumn(99, "col1", "value");
+      }).toThrow("Row index 99 out of bounds in dataset test");
+    });
+
     it("should iterate const columns", () => {
       const dataset = new Dataset("test");
       const constCol1: ConstColumn = { id: "const1", size: 10, type: "STRING", value: "test1" };
@@ -229,6 +247,49 @@ describe("XapiData Tests", () => {
 
       const rows = Array.from(dataset.iterRows());
       expect(rows).toEqual([row1, row2]);
+    });
+
+    describe("getOrgColumn", () => {
+      it("should get original column value", () => {
+        const dataset = new Dataset("test");
+        dataset.addColumn({ id: "col1", size: 10, type: "STRING" });
+        dataset.newRow();
+        dataset.rows[0].orgRow = [{ id: "col1", value: "originalValue" }];
+
+        expect(dataset.getOrgColumn(0, "col1")).toBe("originalValue");
+      });
+
+      it("should return undefined if row index is out of bounds", () => {
+        const dataset = new Dataset("test");
+        dataset.addColumn({ id: "col1", size: 10, type: "STRING" });
+
+        expect(dataset.getOrgColumn(99, "col1")).toBeUndefined();
+      });
+
+      it("should throw error if column id is not found", () => {
+        const dataset = new Dataset("test");
+        dataset.newRow();
+
+        expect(() => dataset.getOrgColumn(0, "nonexistent")).toThrow("Column with id nonexistent not found in dataset test");
+      });
+
+      it("should return undefined if orgRow is undefined", () => {
+        const dataset = new Dataset("test");
+        dataset.addColumn({ id: "col1", size: 10, type: "STRING" });
+        dataset.newRow();
+        dataset.rows[0].orgRow = undefined;
+
+        expect(dataset.getOrgColumn(0, "col1")).toBeUndefined();
+      });
+
+      it("should return undefined if orgRow is null", () => {
+        const dataset = new Dataset("test");
+        dataset.addColumn({ id: "col1", size: 10, type: "STRING" });
+        dataset.newRow();
+        dataset.rows[0].orgRow = null;
+
+        expect(dataset.getOrgColumn(0, "col1")).toBeUndefined();
+      });
     });
   });
 });

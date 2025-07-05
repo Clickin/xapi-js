@@ -116,8 +116,8 @@ describe("Xapi Handler Tests", () => {
 
     const dataset = xapiRoot.datasets[0];
     expect(dataset.id).toBe("output");
-    expect(dataset.constColumns.length).toBe(2);
-    expect(dataset.columns.length).toBe(2);
+    expect(dataset.constColumnSize()).toBe(2);
+    expect(dataset.columnSize()).toBe(2);
     expect(dataset.rows.length).toBe(2);
   });
 
@@ -162,8 +162,8 @@ describe("Xapi Handler Tests", () => {
 
     const dataset = xapiRoot.datasets[0];
     expect(dataset.id).toBe("complexData");
-    expect(dataset.constColumns.length).toBe(2);
-    expect(dataset.columns.length).toBe(9);
+    expect(dataset.constColumnSize()).toBe(2);
+    expect(dataset.columnSize()).toBe(9);
     expect(dataset.rows.length).toBe(2);
 
     // Test row with type
@@ -183,8 +183,8 @@ describe("Xapi Handler Tests", () => {
 
     const dataset = xapiRoot.datasets[0];
     expect(dataset.id).toBe("empty");
-    expect(dataset.constColumns.length).toBe(0);
-    expect(dataset.columns.length).toBe(0);
+    expect(dataset.constColumnSize()).toBe(0);
+    expect(dataset.columnSize()).toBe(0);
     expect(dataset.rows.length).toBe(0);
   });
 
@@ -457,7 +457,63 @@ describe("Xapi Handler Tests", () => {
     expect(colValue).toBe("<script>alert('test')</script>");
   });
 
-  it("should handle self-closing Col tags", async () => {
+  it("should handle CDATA values in columns with parseToTypes enabled", async () => {
+    initXapi({ parseToTypes: true });
+
+    const xmlWithCdata = `<?xml version="1.0" encoding="UTF-8"?>
+    <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+      <Dataset id="test">
+        <ColumnInfo>
+          <Column id="intCol" size="10" type="INT" />
+          <Column id="textCol" size="100" type="STRING" />
+        </ColumnInfo>
+        <Rows>
+          <Row>
+            <Col id="intCol"><![CDATA[123]]></Col>
+            <Col id="textCol"><![CDATA[<script>alert('test')</script>]]></Col>
+          </Row>
+        </Rows>
+      </Dataset>
+    </Root>`;
+
+    const xapiRoot = await parse(xmlWithCdata);
+    const dataset = xapiRoot.datasets[0];
+    const intColValue = dataset.getColumn(0, "intCol");
+    const textColValue = dataset.getColumn(0, "textCol");
+
+    expect(intColValue).toBe(123); // Should be parsed as number
+    expect(textColValue).toBe("<script>alert('test')</script>");
+  });
+
+  it("should handle plain text values in columns with parseToTypes enabled", async () => {
+    initXapi({ parseToTypes: true });
+
+    const xmlWithPlainText = `<?xml version="1.0" encoding="UTF-8"?>
+    <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+      <Dataset id="test">
+        <ColumnInfo>
+          <Column id="intCol" size="10" type="INT" />
+          <Column id="textCol" size="100" type="STRING" />
+        </ColumnInfo>
+        <Rows>
+          <Row>
+            <Col id="intCol">456</Col>
+            <Col id="textCol">plain&#32;text&#32;value</Col>
+          </Row>
+        </Rows>
+      </Dataset>
+    </Root>`;
+
+    const xapiRoot = await parse(xmlWithPlainText);
+    const dataset = xapiRoot.datasets[0];
+    const intColValue = dataset.getColumn(0, "intCol");
+    const textColValue = dataset.getColumn(0, "textCol");
+
+    expect(intColValue).toBe(456); // Should be parsed as number
+    expect(textColValue).toBe("plain text value");
+  });
+
+  it("should handle self-closing Col tags resulting in undefined value", async () => {
     initXapi({ parseToTypes: true });
 
     const xmlWithSelfClosingCol = `<?xml version="1.0" encoding="UTF-8"?>
@@ -477,6 +533,30 @@ describe("Xapi Handler Tests", () => {
     const xapiRoot = await parse(xmlWithSelfClosingCol);
     const dataset = xapiRoot.datasets[0];
     const colValue = dataset.getColumn(0, "nullCol");
+
+    expect(colValue).toBeUndefined();
+  });
+
+  it("should handle empty character data in Col tags", async () => {
+    initXapi({ parseToTypes: true });
+
+    const xmlWithEmptyCharCol = `<?xml version="1.0" encoding="UTF-8"?>
+    <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+      <Dataset id="test">
+        <ColumnInfo>
+          <Column id="emptyCharCol" size="10" type="STRING" />
+        </ColumnInfo>
+        <Rows>
+          <Row>
+            <Col id="emptyCharCol"></Col>
+          </Row>
+        </Rows>
+      </Dataset>
+    </Root>`;
+
+    const xapiRoot = await parse(xmlWithEmptyCharCol);
+    const dataset = xapiRoot.datasets[0];
+    const colValue = dataset.getColumn(0, "emptyCharCol");
 
     expect(colValue).toBeUndefined();
   });
@@ -558,6 +638,35 @@ describe("Xapi Handler Tests", () => {
     expect(xmlOutput).toContain('id="timeParam"');
     expect(xmlOutput).toContain('type="TIME"');
     expect(xmlOutput).toContain('value="143022"');
+  });
+
+  it("should handle CDATA values in OrgRow with parseToTypes enabled", async () => {
+    initXapi({ parseToTypes: true });
+
+    const xmlWithOrgRowCdata = `<?xml version="1.0" encoding="UTF-8"?>
+    <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+      <Dataset id="test">
+        <ColumnInfo>
+          <Column id="textCol" size="100" type="STRING" />
+        </ColumnInfo>
+        <Rows>
+          <Row type="update">
+            <Col id="textCol">newValue</Col>
+            <OrgRow>
+              <Col id="textCol"><![CDATA[original_cdata_value]]></Col>
+            </OrgRow>
+          </Row>
+        </Rows>
+      </Dataset>
+    </Root>`;
+
+    const xapiRoot = await parse(xmlWithOrgRowCdata);
+    const dataset = xapiRoot.datasets[0];
+    const row = dataset.rows[0];
+
+    expect(row.orgRow).toBeDefined();
+    expect(row.orgRow?.length).toBe(1);
+    expect(row.orgRow?.[0].value).toBe("original_cdata_value");
   });
 
   it("should handle unknown column type gracefully", async () => {

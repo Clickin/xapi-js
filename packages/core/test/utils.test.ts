@@ -5,7 +5,9 @@ import {
   makeParseEntities,
   makeWriterEntities,
   stringToDate,
-  uint8ArrayToBase64
+  uint8ArrayToBase64,
+  StringWritableStream,
+  stringToReadableStream
 } from "../src/utils";
 
 describe("Utils Tests", () => {
@@ -14,8 +16,8 @@ describe("Utils Tests", () => {
       const entities = makeParseEntities();
       expect(entities).toBeDefined();
       expect(entities.length).toBe(32);
-      expect(entities[0]).toEqual({ entity: String.fromCharCode(1), value: "&#1;" });
-      expect(entities[31]).toEqual({ entity: String.fromCharCode(32), value: "&#32;" });
+      expect(entities[0]).toEqual({ entity: "&#1;", value: String.fromCharCode(1) });
+      expect(entities[31]).toEqual({ entity: "&#32;", value: String.fromCharCode(32) });
     });
   });
 
@@ -145,6 +147,62 @@ describe("Utils Tests", () => {
       // @ts-ignore - Testing unsupported type
       const result = dateToString(testDate, "UNSUPPORTED");
       expect(result).toBe("");
+    });
+  });
+
+  describe("StringWritableStream", () => {
+    it("should write and get result correctly", async () => {
+      const stream = new StringWritableStream();
+      const writer = stream.getWriter();
+      const encoder = new TextEncoder();
+
+      await writer.write(encoder.encode("Hello"));
+      await writer.write(encoder.encode(" World"));
+      await writer.close();
+
+      expect(stream.getResult()).toBe("Hello World");
+    });
+
+    it("should handle empty writes", async () => {
+      const stream = new StringWritableStream();
+      const writer = stream.getWriter();
+
+      await writer.write(new Uint8Array());
+      await writer.close();
+
+      expect(stream.getResult()).toBe("");
+    });
+  });
+
+  describe("stringToReadableStream", () => {
+    it("should convert string to readable stream", async () => {
+      const testString = "Hello ReadableStream";
+      const stream = stringToReadableStream(testString);
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      let result = "";
+      let done, value;
+
+      while (({ done, value } = await reader.read()) && !done) {
+        result += decoder.decode(value);
+      }
+
+      expect(result).toBe(testString);
+    });
+
+    it("should handle empty string", async () => {
+      const testString = "";
+      const stream = stringToReadableStream(testString);
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      let result = "";
+      let done, value;
+
+      while (({ done, value } = await reader.read()) && !done) {
+        result += decoder.decode(value);
+      }
+
+      expect(result).toBe(testString);
     });
   });
 });
