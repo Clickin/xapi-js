@@ -1,6 +1,6 @@
 import { CdataEvent, CharactersEvent, EndElementEvent, StartElementEvent, StaxXmlParser, StaxXmlWriter, XmlEventType } from "stax-xml";
 import { Col, ColumnType, NexaVersion, Parameter, RowType, XapiOptions, XapiValueType } from "./types";
-import { base64ToUint8Array, dateToString, makeParseEntities, makeWriterEntities, stringToDate, uint8ArrayToBase64 } from "./utils";
+import { base64ToUint8Array, dateToString, makeParseEntities, makeWriterEntities, stringToDate, StringWritableStream, uint8ArrayToBase64 } from "./utils";
 import { Dataset, XapiRoot } from "./xapi-data";
 
 const defaultOptions: XapiOptions = {
@@ -208,6 +208,12 @@ function convertToString(value: XapiValueType, type: ColumnType): string {
     default:
       return String(value); // Default to string
   }
+}
+
+export async function writeString(root: XapiRoot): Promise<string> {
+  const stringStream = new StringWritableStream();
+  await write(stringStream, root);
+  return stringStream.getResult();
 }
 
 export async function write(stream: WritableStream<Uint8Array>, root: XapiRoot): Promise<void> {

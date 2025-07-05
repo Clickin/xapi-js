@@ -56,6 +56,19 @@ importers:
         specifier: ^0.4.5
         version: 0.4.5(vitest@3.2.4(@types/node@20.19.4)(@vitest/ui@3.2.4)(jsdom@26.1.0))
 
+  packages/adaptor-hono:
+    dependencies:
+      '@xapi-js/core':
+        specifier: workspace:*
+        version: link:../core
+      hono:
+        specifier: ^3.0.0
+        version: 3.12.12
+    devDependencies:
+      typescript:
+        specifier: ^5.0.0
+        version: 5.8.3
+
   packages/adaptor-nestjs:
     dependencies:
       '@xapi-js/core':
@@ -937,6 +950,10 @@ packages:
   hasown@2.0.2:
     resolution: {integrity: sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ==}
     engines: {node: '>= 0.4'}
+
+  hono@3.12.12:
+    resolution: {integrity: sha512-5IAMJOXfpA5nT+K0MNjClchzz0IhBHs2Szl7WFAhrFOsbtQsYmNynFyJRg/a3IPsmCfxcrf8txUGiNShXpK5Rg==}
+    engines: {node: '>=16.0.0'}
 
   html-encoding-sniffer@4.0.0:
     resolution: {integrity: sha512-Y22oTqIU4uuPgEemfz7NDJz6OeKf12Lsu+QC+s3BVpda64lTiMYCyGwg5ki4vFxkMwQdeZDl2adZoqUgdFuTgQ==}
@@ -2386,6 +2403,8 @@ snapshots:
   hasown@2.0.2:
     dependencies:
       function-bind: 1.1.2
+
+  hono@3.12.12: {}
 
   html-encoding-sniffer@4.0.0:
     dependencies:
