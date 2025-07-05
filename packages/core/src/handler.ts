@@ -13,16 +13,22 @@ let _options: XapiOptions = {
 };
 
 
+/**
+ * Initializes the X-API handler with the provided options.
+ * @param options - The options to initialize the X-API handler.
+ */
 export function initXapi(options: XapiOptions) {
-  // Initialize the XAPI with the provided options
-  // Here you would typically set up the environment, load necessary libraries, etc.
-  // how to set added options to _options
   _options = {
     ...options
   };
 }
 
 
+/**
+ * Parses an XML stream or string into an XapiRoot object.
+ * @param reader - The ReadableStream or string containing the XML data.
+ * @returns A Promise that resolves to an XapiRoot object.
+ */
 export async function parse(reader: ReadableStream | string): Promise<XapiRoot> {
   // Implement your parsing logic here
   let _stream: ReadableStream;

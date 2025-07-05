@@ -1,6 +1,18 @@
 {
   "name": "xapi-js",
   "private": true,
+  "version": "1.0.0",
+  "description": "A TypeScript implementation of Tobesoft's X-API for communication with Nexacro Platform and XPlatform solutions.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Clickin/xapi-js"
+  },
+  "homepage": "https://github.com/Clickin/xapi-js",
+  "bugs": {
+    "url": "https://github.com/Clickin/xapi-js/issues"
+  },
+  "author": "Clickin <josh87786@gmail.com>",
+  "license": "MIT",
   "scripts": {
     "build": "pnpm -r build",
     "test": "vitest run",

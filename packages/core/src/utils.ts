@@ -1,56 +1,62 @@
 import { ColumnType, ColumnTypeError, XapiValueType } from "./types";
 
-export function makeParseEntities(): { entity: string; value: string; }[] {
-  // This function can be used to create entities for parsing
-  const entities: { entity: string; value: string; }[] = [];
-  for (let i = 1; i <= 32; i++) {
-    entities.push({ entity: `&#${i};`, value: String.fromCharCode(i) });
-  }
-  return entities;
-}
-export function makeWriterEntities(): { entity: string; value: string; }[] {
-  // This function can be used to create entities for writing
-  const entities: { entity: string; value: string; }[] = [];
-  for (let i = 1; i <= 32; i++) {
-    entities.push({ entity: `&#${i};`, value: String.fromCharCode(i) });
-  }
-  return entities;
-}
 /**
- * Base64 문자열을 Uint8Array로 변환합니다.
- * @param base64String - 변환할 base64 문자열
- * @returns Uint8Array
+ * Creates an array of entities for parsing XML, including control characters.
+ * @returns An array of objects, each with an `entity` (e.g., "&#1;") and its `value` (e.g., "\x01").
  */
+export function makeParseEntities(): { entity: string; value: string; }[] {
+  const entities: { entity: string; value: string; }[] = [];
+  for (let i = 1; i <= 32; i++) {
+    entities.push({ entity: `&#${i};`, value: String.fromCharCode(i) });
+  }
+  return entities;
+}
 
+/**
+ * Creates an array of entities for writing XML, including control characters.
+ * @returns An array of objects, each with an `entity` (e.g., "&#1;") and its `value` (e.g., "\x01").
+ */
+export function makeWriterEntities(): { entity: string; value: string; }[] {
+  const entities: { entity: string; value: string; }[] = [];
+  for (let i = 1; i <= 32; i++) {
+    entities.push({ entity: `&#${i};`, value: String.fromCharCode(i) });
+  }
+  return entities;
+}
+
+/**
+ * Converts a Base64 string to a Uint8Array.
+ * @param base64String - The Base64 string to convert.
+ * @returns A Uint8Array.
+ */
 export function base64ToUint8Array(base64String: string): Uint8Array {
-  // atob()를 사용하여 base64를 binary string으로 디코딩
   const binaryString = atob(base64String);
-
-  // binary string을 Uint8Array로 변환
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
-
   return bytes;
 }
-/**
- * Uint8Array를 Base64 문자열로 변환합니다.
- * @param uint8Array - 변환할 Uint8Array
- * @returns Base64 문자열
- */
 
+/**
+ * Converts a Uint8Array to a Base64 string.
+ * @param uint8Array - The Uint8Array to convert.
+ * @returns A Base64 string.
+ */
 export function uint8ArrayToBase64(uint8Array: Uint8Array): string {
-  // Uint8Array를 binary string으로 변환
   let binaryString = '';
   for (let i = 0; i < uint8Array.length; i++) {
     binaryString += String.fromCharCode(uint8Array[i]);
   }
-
-  // btoa()를 사용하여 binary string을 base64로 인코딩
   return btoa(binaryString);
 }
 
+/**
+ * Converts a string representation of a date/time to a Date object.
+ * Supports "yyyyMMdd", "yyyyMMddHHmmss", "yyyyMMddHHmmssSSS", and "HHmmss" formats.
+ * @param value - The string to convert.
+ * @returns A Date object if the string is a valid date/time, otherwise undefined.
+ */
 export function stringToDate(value: string): Date | undefined {
   if (!value) return undefined;
   let year: number;
@@ -61,20 +67,16 @@ export function stringToDate(value: string): Date | undefined {
   let seconds: number = 0;
   let milliseconds: number = 0;
   if (value.length < 6 || value.length > 16) {
-    // 잘못된 형식의 날짜 문자열인 경우 undefined 반환
     return undefined;
   }
-  // 문자열 길이에 따라 날짜를 파싱
-  // yyyyMMdd, yyyyMMddHHmmss, yyyyMMddHHmmssSSS, HHmmss 형식 지원
-  // yyyyMMdd: 8자리, yyyyMMddHHmmss: 14자리, yyyyMMddHHmmssSSS: 16자리, HHmmss: 6자리
   if (value.length >= 8) {
     year = parseInt(value.substring(0, 4), 10);
-    month = parseInt(value.substring(4, 6), 10) - 1; // 월은 0부터 시작
+    month = parseInt(value.substring(4, 6), 10) - 1;
     day = parseInt(value.substring(6, 8), 10);
   } else {
-    year = 1970; // 기본값
-    month = 0; // 기본값
-    day = 1; // 기본값
+    year = 1970;
+    month = 0;
+    day = 1;
   }
   if (value.length === 6) {
     hours = parseInt(value.substring(0, 2), 10);
@@ -88,22 +90,24 @@ export function stringToDate(value: string): Date | undefined {
   if (value.length === 16) {
     milliseconds = parseInt(value.substring(14, 16), 10);
   }
-  // 19700101 000000 ~ 99991231 235959.9999999 까지 지원
-  // 검증
   if (year < 1970 || year > 9999 || month < 0 || month > 11 || day < 1 || day > 31 ||
     hours < 0 || hours > 23 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59 ||
     milliseconds < 0 || milliseconds > 999) {
     return undefined;
   }
-  // Date 객체 생성
   const date = new Date(year, month, day, hours, minutes, seconds, milliseconds);
-  // Date 객체가 유효한지 확인
   if (isNaN(date.getTime())) {
-    return undefined; // 유효하지 않은 날짜
+    return undefined;
   }
   return date;
 }
 
+/**
+ * Converts a Date object to a string representation based on the specified column type.
+ * @param date - The Date object to convert.
+ * @param type - The column type ("DATE", "DATETIME", or "TIME").
+ * @returns A string representation of the date/time.
+ */
 export function dateToString(date: Date, type: Extract<ColumnType, "DATE" | "DATETIME" | "TIME">): string {
   const year = date.getFullYear().toString().padStart(4, '0');
   const month = (date.getMonth() + 1).toString().padStart(2, '0');
@@ -124,6 +128,9 @@ export function dateToString(date: Date, type: Extract<ColumnType, "DATE" | "DAT
   }
 }
 
+/**
+ * A WritableStream that collects all written Uint8Array chunks and provides them as a single string.
+ */
 export class StringWritableStream extends WritableStream<Uint8Array> {
   private result: string = '';
 
@@ -139,11 +146,20 @@ export class StringWritableStream extends WritableStream<Uint8Array> {
     });
   }
 
+  /**
+   * Returns the collected string result.
+   * @returns The concatenated string from all written chunks.
+   */
   getResult(): string {
     return this.result;
   }
 }
 
+/**
+ * Converts a string to a ReadableStream of Uint8Array.
+ * @param str - The string to convert.
+ * @returns A ReadableStream containing the string as Uint8Array.
+ */
 export function stringToReadableStream(str: string): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   const bytes = encoder.encode(str);
@@ -155,6 +171,14 @@ export function stringToReadableStream(str: string): ReadableStream<Uint8Array> 
     }
   });
 }
+
+/**
+ * Converts a value to the specified ColumnType.
+ * @param value - The value to convert.
+ * @param type - The target ColumnType.
+ * @returns The converted value, or the original value if conversion fails or is not applicable.
+ * @throws {ColumnTypeError} if the column type is unsupported.
+ */
 export function convertToColumnType(value: XapiValueType, type: ColumnType): XapiValueType {
   switch (type) {
     case "INT":
@@ -178,11 +202,18 @@ export function convertToColumnType(value: XapiValueType, type: ColumnType): Xap
         return value;
       }
     case "STRING":
-      return value as string; // No conversion needed for STRING type
+      return value as string;
     default:
       throw new ColumnTypeError(`Unsupported column type: ${type}`);
-  } // this line is reported as not covered by test, but it's not possible to cover it
+  }
 }
+
+/**
+ * Converts an XapiValueType to its string representation based on the specified ColumnType.
+ * @param value - The value to convert.
+ * @param type - The ColumnType to guide the conversion.
+ * @returns The string representation of the value.
+ */
 export function convertToString(value: XapiValueType, type: ColumnType): string {
   switch (type) {
     case "INT":
@@ -197,6 +228,6 @@ export function convertToString(value: XapiValueType, type: ColumnType): string 
     case "BLOB":
       return uint8ArrayToBase64(value as Uint8Array);
     default:
-      return String(value); // Default to string
+      return String(value);
   }
 }

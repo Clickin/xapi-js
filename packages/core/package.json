@@ -1,11 +1,11 @@
 {
   "name": "@xapi-js/core",
   "type": "module",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "description": "",
+  "description": "Core utilities and types for X-API.",
   "exports": {
     "types": "./dist/index.d.ts",
     "import": "./dist/index.js",
@@ -21,15 +21,15 @@
   "files": [
     "dist"
   ],
-  "keywords": [],
+  "keywords": ["tobesoft", "x-api", "xapi"],
   "license": "MIT",
-  "homepage": "https://github.com/wobsoriano/pkg-name#readme",
+  "homepage": "https://github.com/Clickin/xapi-js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wobsoriano/pkg-name.git"
+    "url": "https://github.com/Clickin/xapi-js"
   },
-  "bugs": "https://github.com/wobsoriano/pkg-name/issues",
-  "author": "Robert Soriano <sorianorobertc@gmail.com>",
+  "bugs": "https://github.com/Clickin/xapi-js/issues",
+  "author": "Clickin <josh87786@gmail.com>",
   "devDependencies": {
     "@types/node": "^20.11.24",
     "typescript": "^5.3.3"
