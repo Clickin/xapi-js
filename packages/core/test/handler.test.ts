@@ -513,18 +513,18 @@ describe("Xapi Handler Tests", () => {
     expect(textColValue).toBe("plain text value");
   });
 
-  it("should handle self-closing Col tags resulting in undefined value", async () => {
+  it("should handle self-closing Col tags resulting in undefined value for non-string types", async () => {
     initXapi({ parseToTypes: true });
 
     const xmlWithSelfClosingCol = `<?xml version="1.0" encoding="UTF-8"?>
     <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
       <Dataset id="test">
         <ColumnInfo>
-          <Column id="nullCol" size="10" type="STRING" />
+          <Column id="nullIntCol" size="10" type="INT" />
         </ColumnInfo>
         <Rows>
           <Row>
-            <Col id="nullCol" />
+            <Col id="nullIntCol" />
           </Row>
         </Rows>
       </Dataset>
@@ -532,9 +532,38 @@ describe("Xapi Handler Tests", () => {
 
     const xapiRoot = await parse(xmlWithSelfClosingCol);
     const dataset = xapiRoot.datasets[0];
-    const colValue = dataset.getColumn(0, "nullCol");
+    const colValue = dataset.getColumn(0, "nullIntCol");
 
     expect(colValue).toBeUndefined();
+  });
+
+  it("should handle self-closing Col tags in OrgRow resulting in undefined value", async () => {
+    initXapi({ parseToTypes: true });
+
+    const xmlWithOrgRowSelfClosing = `<?xml version="1.0" encoding="UTF-8"?>
+    <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+      <Dataset id="test">
+        <ColumnInfo>
+          <Column id="testCol" size="10" type="STRING" />
+        </ColumnInfo>
+        <Rows>
+          <Row type="update">
+            <Col id="testCol">newValue</Col>
+            <OrgRow>
+              <Col id="testCol" />
+            </OrgRow>
+          </Row>
+        </Rows>
+      </Dataset>
+    </Root>`;
+
+    const xapiRoot = await parse(xmlWithOrgRowSelfClosing);
+    const dataset = xapiRoot.datasets[0];
+    const row = dataset.rows[0];
+
+    expect(row.orgRow).toBeDefined();
+    expect(row.orgRow?.length).toBe(1);
+    expect(row.orgRow?.[0].value).toBeUndefined();
   });
 
   it("should handle empty character data in Col tags", async () => {
@@ -560,6 +589,8 @@ describe("Xapi Handler Tests", () => {
 
     expect(colValue).toBeUndefined();
   });
+
+  
 
   it("should handle invalid type conversions gracefully", async () => {
     initXapi({ parseToTypes: true });

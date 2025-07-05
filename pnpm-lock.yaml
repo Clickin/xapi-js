@@ -68,8 +68,8 @@ importers:
   packages/core:
     dependencies:
       stax-xml:
-        specifier: ^0.2.2
-        version: 0.2.2
+        specifier: ^0.2.4
+        version: 0.2.4
     devDependencies:
       '@types/node':
         specifier: ^20.11.24
@@ -1339,8 +1339,8 @@ packages:
     resolution: {integrity: sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw==}
     engines: {node: '>= 0.8'}
 
-  stax-xml@0.2.2:
-    resolution: {integrity: sha512-UOyj30aFzwG/cfYiyd0T9Ng+nn5N6BBPKbElqJs2T+cKiO6aejNF04z7owyk1OcPzEIqAUIw3y27q9tFIoJ8Sw==}
+  stax-xml@0.2.4:
+    resolution: {integrity: sha512-g45ElHjzu8/5WAn8wOqoSCisMKQUFtKUQjsy09EAY4/npdlOKQnmmrnv1cWOrz6x39pop4e1/sQj3gx3vTqtCA==}
 
   std-env@3.9.0:
     resolution: {integrity: sha512-UGvjygr6F6tpH7o2qyqR6QYpwraIjKSdtzyBdyytFOHmPZY917kwdwLG0RbOjWOnKmnm3PeHjaoLLMie7kPLQw==}
@@ -2809,7 +2809,7 @@ snapshots:
 
   statuses@2.0.2: {}
 
-  stax-xml@0.2.2: {}
+  stax-xml@0.2.4: {}
 
   std-env@3.9.0: {}
 
