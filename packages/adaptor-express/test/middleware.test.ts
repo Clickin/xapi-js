@@ -65,4 +65,39 @@ describe('xapiExpress middleware', () => {
     expect(endSpy).toHaveBeenCalled();   // Assert end was called
     expect(next).not.toHaveBeenCalled();
   });
+
+  it('should call next if content-type is not application/xml', async () => {
+    const mockReq = createRequest({
+      method: "POST",
+      body: "some plain text",
+      headers: {
+        "content-type": "text/plain",
+      },
+    });
+    const mockHandler = vi.fn();
+    const middleware = xapiExpress(mockHandler);
+    const mockRes = createResponse();
+
+    await middleware(mockReq, mockRes, next);
+
+    expect(mockHandler).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('should call next with an error if XML parsing fails', async () => {
+    const mockReq = createRequest({
+      method: "POST",
+      body: "invalid xml",
+      headers: {
+        "content-type": "application/xml",
+      },
+    });
+    const mockHandler = vi.fn();
+    const middleware = xapiExpress(mockHandler);
+    const mockRes = createResponse();
+
+    await middleware(mockReq, mockRes, next);
+
+    expect(next).toHaveBeenCalledWith(expect.any(Error));
+  });
 });

@@ -5,17 +5,13 @@ type XapiExpressHandler = (xapi: XapiRoot) => Promise<XapiRoot>;
 
 export const xapiExpress = (handler: XapiExpressHandler) => {
   return async (req: Request, res: Response, next: NextFunction) => {
-    console.log('xapiExpress middleware called');
-    console.log('Request headers:', req.headers);
     if (req.headers['content-type'] !== 'application/xml') {
       return next();
     }
 
     try {
-      const xapiReq = parse(req.body as ReadableStream);
-      if (!(xapiReq instanceof XapiRoot)) {
-        throw new Error('Invalid XML');
-      }
+      // req.body는 이미 문자열이라고 가정
+      const xapiReq = await parse(req.body);
       const xapiRes = await handler(xapiReq);
       const stringWritable = new StringWritableStream();
       await write(stringWritable, xapiRes);

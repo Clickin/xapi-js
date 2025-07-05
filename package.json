@@ -3,7 +3,9 @@
   "private": true,
   "scripts": {
     "build": "pnpm -r build",
-    "test": "vitest"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage"
   },
   "workspaces": [
     "packages/*"
