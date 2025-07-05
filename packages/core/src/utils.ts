@@ -110,3 +110,34 @@ export function dateToString(date: Date, type: Extract<ColumnType, "DATE" | "DAT
   }
 }
 
+export class StringWritableStream extends WritableStream<Uint8Array> {
+  private result: string = '';
+
+  constructor() {
+    const decoder = new TextDecoder();
+    super({
+      write: (chunk: Uint8Array) => {
+        this.result += decoder.decode(chunk, { stream: true });
+      },
+      close: () => {
+        this.result += decoder.decode();
+      }
+    });
+  }
+
+  getResult(): string {
+    return this.result;
+  }
+}
+
+export function stringToReadableStream(str: string): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(str);
+
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    }
+  });
+}

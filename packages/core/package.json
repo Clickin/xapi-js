@@ -1,0 +1,38 @@
+{
+  "name": "@xapi-js/core",
+  "type": "module",
+  "version": "0.0.0",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "description": "",
+  "exports": {
+    "types": "./dist/index.d.ts",
+    "import": "./dist/index.js",
+    "require": "./dist/index.cjs"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm build"
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [],
+  "license": "MIT",
+  "homepage": "https://github.com/wobsoriano/pkg-name#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wobsoriano/pkg-name.git"
+  },
+  "bugs": "https://github.com/wobsoriano/pkg-name/issues",
+  "author": "Robert Soriano <sorianorobertc@gmail.com>",
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "stax-xml": "^0.2.2"
+  }
+}

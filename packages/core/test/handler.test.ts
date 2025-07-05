@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { initXapi, parse, write } from "../src/handler";
 import { NexaVersion, XapiOptions, XplatformVersion } from "../src/types";
 import { Dataset, XapiRoot } from "../src/xapi-data";

@@ -1,0 +1,33 @@
+{
+  "name": "@xapi-js/adaptor-fetch",
+  "type": "module",
+  "version": "0.0.0",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "description": "",
+  "exports": {
+    "types": "./dist/index.d.ts",
+    "import": "./dist/index.js",
+    "require": "./dist/index.cjs"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage"
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [],
+  "license": "MIT",
+  "dependencies": {
+    "@xapi-js/core": "workspace:*",
+    "vitest": "^3.2.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest-fetch-mock": "^0.4.5"
+  }
+}

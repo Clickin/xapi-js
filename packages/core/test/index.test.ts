@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { Dataset, initXapi, NexaVersion, parse, write, XapiRoot, XplatformVersion } from "../src/index";
 
 describe("Index Tests", () => {

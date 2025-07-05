@@ -48,11 +48,23 @@ export async function parse(reader: ReadableStream | string): Promise<XapiRoot> 
       const startEvent = event as StartElementEvent;
       switch (startEvent.localName) {
         case "Parameter":
+          let paramValue: XapiValueType;
+          const charEvent = (await xmlParser.next()).value;
+          if (charEvent.type === XmlEventType.CHARACTERS || charEvent.type === XmlEventType.CDATA) {
+            if (charEvent.type === XmlEventType.CDATA) {
+              paramValue = (charEvent as CdataEvent).value || "";
+            } else if (charEvent.type === XmlEventType.CHARACTERS) {
+              paramValue = (charEvent as CharactersEvent).value || "";
+            }
+          }
+          else {
+            paramValue = ""; // Default to empty string if no value is found
+          }
           xapiRoot.addParameter({
             id: startEvent.attributes["id"],
             type: startEvent.attributes["type"] as ColumnType || "STRING",
-            value: startEvent.attributes["value"] || ""
-          })
+            value: _options.parseToTypes ? convertToColumnType(paramValue, startEvent.attributes["type"] as ColumnType || "STRING") : paramValue,
+          });
           break;
         case "Dataset":
           xapiRoot.addDataset(await parseDataset(startEvent, xmlParser));
