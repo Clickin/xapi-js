@@ -85,7 +85,7 @@ console.log('XapiRoot created:', xapi);
 You can serialize an `XapiRoot` object back into an X-API XML string:
 
 ```typescript
-import { write, XapiRoot, Dataset } from '@xapi-ts/core';
+import { writeString, XapiRoot, Dataset } from '@xapi-ts/core';
 
 const xapi = new XapiRoot();
 xapi.addParameter({ id: 'status', value: 'OK' });
@@ -99,8 +99,9 @@ productsDataset.setColumn(0, 'price', 1000);
 xapi.addDataset(productsDataset);
 
 async function writeXapi() {
-  const xmlOutput = await write(xapi);
-  console.log('Generated XML:\n', xmlOutput);
+  const xmlOutput = await writeString(xapi);
+  console.log('생성된 XML:
+', xmlOutput);
 }
 
 writeXapi();
