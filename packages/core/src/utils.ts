@@ -2,26 +2,6 @@ import { ColumnType, ColumnTypeError, XapiValueType } from "./types";
 
 // make ReadableStream to string
 // can be async
-export function readStreamReadAll(stream: ReadableStream<Uint8Array>): Promise<string> {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let result = '';
-
-  return new Promise((resolve, reject) => {
-    function read() {
-      reader.read().then(({ done, value }) => {
-        if (done) {
-          resolve(result);
-        } else {
-          result += decoder.decode(value, { stream: true });
-          read();
-        }
-      }).catch(reject);
-    }
-    read();
-  });
-}
-
 export function arrayBufferToString(buffer: ArrayBuffer): string {
   const decoder = new TextDecoder();
   return decoder.decode(buffer);

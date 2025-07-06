@@ -895,7 +895,7 @@ describe("Xapi Handler Tests", () => {
         </Rows>
       </Dataset>
     </Root>`;
-    expect(() => parse(invalidXml)).toThrow("Unsupported column type: ERROR_TYPE");
+    expect(() => parse(invalidXml)).toThrow("Column type for testCol not found in dataset invalid");
   });
 
 });

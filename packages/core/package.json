@@ -43,6 +43,7 @@
     "@types/xml2js": "^0.4.14",
     "fast-xml-parser": "^5.2.5",
     "stax-xml": "^0.2.4",
+    "txml": "^5.1.1",
     "xml2js": "^0.6.2"
   }
 }

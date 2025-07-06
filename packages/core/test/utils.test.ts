@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { ColumnType, ColumnTypeError } from "../src";
 import {
   StringWritableStream,
+  _unescapeXml,
+  arrayBufferToString,
   base64ToUint8Array,
   convertToColumnType,
   dateToString,
@@ -229,5 +231,48 @@ describe("Utils Tests", () => {
       expect(convertToColumnType("Hello", "BLOB")).toBe("Hello");
       expect(() => convertToColumnType("123", "UNKNOWN" as ColumnType)).toThrow(ColumnTypeError); // Unsupported
     })
+  })
+
+  describe("arrayBufferToString", () => {
+    it("should convert ArrayBuffer to string", () => {
+      const encoder = new TextEncoder();
+      const buffer = encoder.encode("Hello World").buffer;
+      const result = arrayBufferToString(buffer);
+      expect(result).toBe("Hello World");
+    });
+
+    it("should handle empty ArrayBuffer", () => {
+      const buffer = new ArrayBuffer(0);
+      const result = arrayBufferToString(buffer);
+      expect(result).toBe("");
+    });
+  })
+  describe("_unescapeXml", () => {
+    it("should unescape XML entities", () => {
+      const input = `Test &#10;`;
+      const expected = "Test \x0A";
+      const result = _unescapeXml(input);
+      expect(result).toBe(expected);
+    });
+
+    it("should handle empty string", () => {
+      const input = "";
+      const expected = "";
+      const result = _unescapeXml(input);
+      expect(result).toBe(expected);
+    });
+
+    it("should handle no entities", () => {
+      const input = "Hello World";
+      const expected = "Hello World";
+      const result = _unescapeXml(input);
+      expect(result).toBe(expected);
+    });
+    it("should handle undefined input", () => {
+      const input = undefined;
+      const expected = undefined;
+      const result = _unescapeXml(input);
+      expect(result).toBe(expected);
+    });
   })
 });
