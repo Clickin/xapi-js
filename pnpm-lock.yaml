@@ -76,9 +76,6 @@ importers:
 
   packages/core:
     dependencies:
-      '@types/xml2js':
-        specifier: ^0.4.14
-        version: 0.4.14
       stax-xml:
         specifier: ^0.2.4
         version: 0.2.4
@@ -682,9 +679,6 @@ packages:
 
   '@types/serve-static@1.15.8':
     resolution: {integrity: sha512-roei0UY3LhpOJvjbIP6ZZFngyLKl5dskOtDhxY5THRSpO+ZI+nzJ+m5yUMzGrp89YRa7lvknKkMYjqQFGwA7Sg==}
-
-  '@types/xml2js@0.4.14':
-    resolution: {integrity: sha512-4YnrRemBShWRO2QjvUin8ESA41rH+9nQGLUGZV/1IDhi3SL9OhdpNC/MrulTWuptXKwhx/aDxE7toV0f/ypIXQ==}
 
   '@vitest/coverage-istanbul@3.2.4':
     resolution: {integrity: sha512-IDlpuFJiWU9rhcKLkpzj8mFu/lpe64gVgnV15ZOrYx1iFzxxrxCzbExiUEKtwwXRvEiEMUS6iZeYgnMxgbqbxQ==}
@@ -2283,10 +2277,6 @@ snapshots:
       '@types/http-errors': 2.0.5
       '@types/node': 20.19.4
       '@types/send': 0.17.5
-
-  '@types/xml2js@0.4.14':
-    dependencies:
-      '@types/node': 20.19.4
 
   '@vitest/coverage-istanbul@3.2.4(vitest@3.2.4(@types/node@20.19.4)(@vitest/ui@3.2.4)(jsdom@26.1.0))':
     dependencies:
