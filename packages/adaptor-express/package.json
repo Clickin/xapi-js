@@ -1,7 +1,7 @@
 {
   "name": "@xapi-js/adaptor-express",
   "type": "module",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -20,7 +20,11 @@
   "files": [
     "dist"
   ],
-  "keywords": ["tobesoft", "x-api", "xapi"],
+  "keywords": [
+    "tobesoft",
+    "x-api",
+    "xapi"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/Clickin/xapi-js"
