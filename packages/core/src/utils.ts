@@ -231,3 +231,13 @@ export function convertToString(value: XapiValueType, type: ColumnType): string 
       return String(value);
   }
 }
+
+const entities = makeParseEntities();
+export function _unescapeXml(str: string): string {
+  if (!str) return str; // Return empty string if input is empty
+  const regex = new RegExp(entities.map(e => e.entity).join('|'), 'g');
+  return str.replace(regex, (match) => {
+    const entity = entities.find(e => e.entity === match);
+    return entity ? entity.value : match; // If not found, return the original match
+  });
+}

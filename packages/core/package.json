@@ -16,12 +16,17 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
+    "benchmark": "node test/performance.test.mjs",
     "prepublishOnly": "pnpm build"
   },
   "files": [
     "dist"
   ],
-  "keywords": ["tobesoft", "x-api", "xapi"],
+  "keywords": [
+    "tobesoft",
+    "x-api",
+    "xapi"
+  ],
   "license": "MIT",
   "homepage": "https://github.com/Clickin/xapi-js",
   "repository": {
@@ -35,6 +40,9 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "stax-xml": "^0.2.4"
+    "@types/xml2js": "^0.4.14",
+    "fast-xml-parser": "^5.2.5",
+    "stax-xml": "^0.2.4",
+    "xml2js": "^0.6.2"
   }
 }

@@ -25,7 +25,10 @@
   "devDependencies": {
     "@vitest/coverage-v8": "^3.2.4",
     "@vitest/ui": "^3.2.4",
+    "mitata": "^1.0.34",
+    "ts-node": "^10.9.2",
     "tsup": "^8.0.2",
+    "txml": "^5.1.1",
     "typescript": "^5.0.0",
     "vitest": "^3.2.4"
   }

@@ -1,7 +1,17 @@
-import { CdataEvent, CharactersEvent, EndElementEvent, StartElementEvent, StaxXmlParser, StaxXmlWriter, XmlEventType } from "stax-xml";
-import { Col, columnType, ColumnType, NexaVersion, Parameter, RowType, XapiOptions, XapiValueType } from "./types";
-import { convertToColumnType, convertToString, dateToString, makeParseEntities, makeWriterEntities, StringWritableStream, uint8ArrayToBase64 } from "./utils";
+import { StaxXmlWriter } from "stax-xml";
+import * as txml from "txml";
+import { Col, ColumnType, NexaVersion, Parameter, RowType, XapiOptions, XapiValueType } from "./types";
+import { _unescapeXml, convertToColumnType, convertToString, dateToString, makeParseEntities, makeWriterEntities, StringWritableStream, uint8ArrayToBase64 } from "./utils";
 import { Dataset, XapiRoot } from "./xapi-data";
+
+type tNodeObj = {
+  tagName: string;
+  attributes?: Record<string, string>;
+  children?: tNode[];
+};
+type tNode = tNodeObj & string;
+
+const parseEntities = makeParseEntities();
 
 const defaultOptions: XapiOptions = {
   xapiVersion: NexaVersion,
@@ -25,141 +35,118 @@ export function initXapi(options: XapiOptions) {
 
 
 /**
- * Parses an XML stream or string into an XapiRoot object.
- * @param reader - The ReadableStream or string containing the XML data.
+ * Parses an XML string into an XapiRoot object using txml.
+ * @param xml - The string containing the XML data.
  * @returns A Promise that resolves to an XapiRoot object.
  */
-export async function parse(reader: ReadableStream | string): Promise<XapiRoot> {
-  // Implement your parsing logic here
-  let _stream: ReadableStream;
-  if (typeof reader === "string") {
-    // If the reader is a string, convert it to a ReadableStream
-    _stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode(reader));
-        controller.close();
-      }
-    });
-  }
-  else {
-    _stream = reader;
-  }
-  const xmlParser = new StaxXmlParser(_stream, {
-    addEntities: makeParseEntities(),
-    encoding: "UTF-8",
-  });
+export function parse(xml: string): XapiRoot {
+  const parsedXml: tNodeObj[] = txml.parse(xml);
   const xapiRoot = new XapiRoot();
-  for await (const event of xmlParser) {
-    if (event.type === XmlEventType.START_ELEMENT) {
-      const startEvent = event as StartElementEvent;
-      switch (startEvent.localName) {
-        case "Parameter":
-          let paramValue: XapiValueType = undefined;
-          const charEvent = (await xmlParser.next()).value;
-          if (charEvent.type === XmlEventType.CHARACTERS) {
-            paramValue = (charEvent as CharactersEvent).value;
-          }
-          xapiRoot.addParameter({
-            id: startEvent.attributes["id"],
-            type: startEvent.attributes["type"] as ColumnType || "STRING",
-            value: _options.parseToTypes ? convertToColumnType(paramValue, startEvent.attributes["type"] as ColumnType || "STRING") : paramValue,
-          });
-          break;
-        case "Dataset":
-          xapiRoot.addDataset(await parseDataset(startEvent, xmlParser));
-          break;
-      }
-    }
+
+  const rootElement = parsedXml.find((node) => {
+    const rootNode = node as tNode;
+    return rootNode.tagName === 'Root';
+  });
+  if (rootElement === undefined) return xapiRoot;
+  const parametersElement = rootElement.children?.find((node) => node.tagName === 'Parameters');
+  parseParameters(parametersElement, xapiRoot);
+  const datasetsElement = rootElement.children?.find((node: tNode) => node.tagName === 'Dataset');
+  if (datasetsElement) {
+    const datasetId = datasetsElement.attributes?.id!!;
+    const dataset = new Dataset(datasetId);
+    xapiRoot.addDataset(dataset);
+
+    const columnInfoElement = datasetsElement.children?.find((node: tNode) => node.tagName === 'ColumnInfo');
+    parseColumnInfo(columnInfoElement, dataset);
+
+    const rowsElement = datasetsElement.children?.find((node: tNode) => node.tagName === 'Rows');
+    parseRows(rowsElement, dataset);
   }
+
   return xapiRoot;
 }
 
-async function parseDataset(initEvent: StartElementEvent, xmlParser: StaxXmlParser): Promise<Dataset> {
-  const dataset = new Dataset(initEvent.attributes["id"]);
-  let currentRowIndex = -1;
-  for await (const event of xmlParser) {
-    if (event.type === XmlEventType.END_ELEMENT && (event as EndElementEvent).localName === "Dataset") { // </Dataset>
-      // End of dataset parsing
-      break;
-    } else if (event.type === XmlEventType.START_ELEMENT) {
-      const startEvent = event as StartElementEvent;
-      switch (startEvent.localName) {
-        case "ConstColumn":
-          dataset.addConstColumn({
-            id: startEvent.attributes["id"],
-            size: parseInt(startEvent.attributes["size"] || "0", 10),
-            type: startEvent.attributes["type"] as ColumnType || "STRING",
-            value: startEvent.attributes["value"] || undefined,
-          });
-          break;
-        case "Column":
-          dataset.addColumn({
-            id: startEvent.attributes["id"],
-            size: parseInt(startEvent.attributes["size"] || "0", 10),
-            type: startEvent.attributes["type"] as ColumnType || "STRING"
-          });
-          break;
-        case "Row":
-          currentRowIndex = dataset.newRow();
-          dataset.rows[currentRowIndex].type = startEvent.attributes["type"] as RowType || undefined;
-          break;
-        case "Col": {
-          await parseCol(xmlParser, startEvent, dataset, currentRowIndex, false);
-          break;
-        }
-        case "OrgRow":
-          if (currentRowIndex < 0) {
-            throw new Error("Row must be defined before OrgRow");
-          }
-          dataset.rows[currentRowIndex].orgRow = [];
-          for await (const orgRowEvent of xmlParser) {
-            if (orgRowEvent.type === XmlEventType.END_ELEMENT && (orgRowEvent as EndElementEvent).localName === "OrgRow") {
-              break; // Exit when we reach the end of OrgRow
-            }
-            if (orgRowEvent.type === XmlEventType.START_ELEMENT && (orgRowEvent as StartElementEvent).localName === "Col") {
-              const orgColEvent = orgRowEvent as StartElementEvent;
-              await parseCol(xmlParser, orgColEvent, dataset, currentRowIndex, true);
-            }
-          }
+function parseValue(value: string, type: ColumnType): XapiValueType {
+  // entity decoding
+  value = _unescapeXml(value);
+  return _options.parseToTypes ? convertToColumnType(value, type) : value;
+}
+
+function parseColumnInfo(columnInfoElement: tNodeObj | undefined, dataset: Dataset): void {
+  if (columnInfoElement) {
+    columnInfoElement.children?.forEach((colInfo: tNode) => {
+      if (colInfo.tagName === 'ConstColumn') {
+        dataset.addConstColumn({
+          id: colInfo.attributes?.id!!,
+          size: parseInt(colInfo.attributes?.size || "0", 10),
+          type: (colInfo.attributes?.type as ColumnType) || "STRING",
+          value: parseValue(colInfo.attributes?.value || "", colInfo.attributes?.type as ColumnType),
+        });
+      } else if (colInfo.tagName === 'Column') {
+        dataset.addColumn({
+          id: colInfo.attributes?.id!!,
+          size: parseInt(colInfo.attributes?.size || "0", 10),
+          type: (colInfo.attributes?.type as ColumnType) || "STRING",
+        });
       }
-    }
-  }
-  return dataset;
-}
-
-async function parseCol(xmlParser: StaxXmlParser, startEvent: StartElementEvent, dataset: Dataset, currentRowIndex: number, isOrgRow: boolean): Promise<void> {
-  if (currentRowIndex < 0) {
-    throw new Error("Row must be defined before Col");
-  }
-  const colId = startEvent.attributes["id"];
-  const colIndex = dataset.getColumnIndex(colId);
-  if (colIndex === undefined || colIndex < 0) {
-    throw new Error(`Column with id ${colId} not found in dataset ${dataset.id}`);
-  }
-  const colCharEvent = (await xmlParser.next()).value;
-  let value;
-  if (colCharEvent.type === XmlEventType.CDATA) {
-    value = (colCharEvent as CdataEvent).value;
-  }
-  else if (colCharEvent.type === XmlEventType.CHARACTERS) {
-    value = (colCharEvent as CharactersEvent).value;
-  }
-  let castedValue: XapiValueType = value;
-  if (_options.parseToTypes) {
-    const columnInfo = dataset.getColumnInfo(colId);
-    if (!columnInfo || columnType.includes(columnInfo.type) === false) {
-      throw new Error(`Column type for ${colId} not found in dataset ${dataset.id}`);
-    }
-    castedValue = convertToColumnType(value, columnInfo.type as ColumnType);
-  }
-  if (!isOrgRow) {
-    dataset.rows[currentRowIndex].cols.push({ id: colId, value: castedValue });
-  } else {
-    // If it's an OrgRow, we push the column with the value
-    dataset.rows[currentRowIndex].orgRow!.push({ id: colId, value: castedValue });
+    });
   }
 }
 
+function parseRows(rowsElement: tNodeObj | undefined, dataset: Dataset): void {
+  if (rowsElement) {
+    rowsElement.children?.forEach((r: tNode) => {
+      if (r.tagName === 'Row') {
+        const rowIndex = dataset.newRow();
+        dataset.rows[rowIndex].type = (r.attributes?.type as RowType) || undefined;
+
+        r.children?.forEach((col: tNode) => {
+          if (col.tagName === 'Col') {
+            const colId = col.attributes?.id!!;
+            const value = col.children?.[0] as string;
+            const columnInfo = dataset.getColumnInfo(colId);
+            if (!columnInfo) throw new Error(`Column with id ${colId} not found in dataset ${dataset.id}`);
+            const castedValue = parseValue(value, columnInfo.type as ColumnType);
+            dataset.rows[rowIndex].cols.push({ id: colId, value: castedValue });
+          } else if (col.tagName === 'OrgRow') {
+            dataset.rows[rowIndex].orgRow = [];
+            col.children?.forEach((orgCol: tNode) => {
+              if (orgCol.tagName === 'Col') {
+                const colId = orgCol.attributes?.id!!;
+                const value = orgCol.children?.[0] as string;
+                const columnInfo = dataset.getColumnInfo(colId);
+                if (!columnInfo) throw new Error(`Column with id ${colId} not found in dataset ${dataset.id}`);
+                const castedValue = parseValue(value, columnInfo.type as ColumnType);
+                if (dataset && dataset.rows && dataset.rows[rowIndex] && dataset.rows[rowIndex].orgRow) {
+                  dataset.rows[rowIndex].orgRow.push({ id: colId, value: castedValue });
+                }
+              }
+            });
+          }
+        });
+      }
+    });
+  }
+}
+
+
+
+function parseParameters(parametersElement: tNodeObj | undefined, xapiRoot: XapiRoot): void {
+  if (parametersElement) {
+    parametersElement.children?.forEach((p: tNode) => {
+      if (p.tagName === 'Parameter') {
+        const id = p.attributes?.id!!;
+        const type = (p.attributes?.type as ColumnType) || "STRING";
+        const value = p.children?.[0] as string;
+        xapiRoot.addParameter({
+          id,
+          type,
+          value: parseValue(value, type),
+        });
+      }
+    });
+  }
+}
 
 export async function writeString(root: XapiRoot): Promise<string> {
   const stringStream = new StringWritableStream();
@@ -267,13 +254,16 @@ async function writeDataset(writer: StaxXmlWriter, dataset: Dataset): Promise<vo
   await writer.writeEndElement(); // </Rows>
   await writer.writeEndElement(); // </Dataset>
 }
-
 async function writeColumn(writer: StaxXmlWriter, dataset: Dataset, col: Col): Promise<void> {
   if (col.value !== undefined && col.value !== null) {
-    const colInfo = dataset.getColumnInfo(col.id)!;
-    await writer.writeStartElement("Col", { attributes: { id: col.id } });
-    await writer.writeCharacters(convertToString(col.value, colInfo.type));
-    await writer.writeEndElement();
+    const colInfo = dataset.getColumnInfo(col.id);
+    if (colInfo && colInfo.type) {
+      await writer.writeStartElement("Col", { attributes: { id: col.id } });
+      await writer.writeCharacters(convertToString(col.value, colInfo.type));
+      await writer.writeEndElement();
+    } else {
+      throw new Error(`Column info for ${col.id} not found or type is undefined in dataset ${dataset.id}`);
+    }
   }
   else {
     // If value is undefined or null, we still write the Col element with an empty value
