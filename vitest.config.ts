@@ -5,7 +5,7 @@ export default defineConfig({
     projects: ["packages/*"],
     pool: "threads",
     coverage: {
-      provider: 'v8', // or 'v8'
+      provider: 'istanbul', // or 'v8'
       exclude: [
         ...configDefaults.exclude,
         '**/.{idea,git,cache,output,temp}/**',

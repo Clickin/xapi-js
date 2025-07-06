@@ -6,6 +6,7 @@ import {
   arrayBufferToString,
   base64ToUint8Array,
   convertToColumnType,
+  convertToString,
   dateToString,
   makeParseEntities,
   makeWriterEntities,
@@ -222,7 +223,9 @@ describe("Utils Tests", () => {
   describe("string coversion functions", () => {
     it("convertToColumnType branch", async () => {
       expect(convertToColumnType("123", "INT")).toBe(123);
+      expect(convertToColumnType("123", "BIGDECIMAL")).toBe(123); // BIGDECIMAL 케이스 추가
       expect(convertToColumnType("123.45", "FLOAT")).toBe(123.45);
+      expect(convertToColumnType("123.45", "DECIMAL")).toBe(123.45); // DECIMAL 케이스 추가
       expect(convertToColumnType("20230615", "DATE")).toBeInstanceOf(Date);
       expect(convertToColumnType("20230615143022", "DATETIME")).toBeInstanceOf(Date);
       expect(convertToColumnType("143022", "TIME")).toBeInstanceOf(Date);
@@ -230,6 +233,28 @@ describe("Utils Tests", () => {
       expect(convertToColumnType("SGVsbG8gV29ybGQ=", "BLOB")).toBeInstanceOf(Uint8Array);
       expect(convertToColumnType("Hello", "BLOB")).toBe("Hello");
       expect(() => convertToColumnType("123", "UNKNOWN" as ColumnType)).toThrow(ColumnTypeError); // Unsupported
+    })
+
+    it("convertToString branch", () => {
+      // 숫자 타입들
+      expect(convertToString(123, "INT")).toBe("123");
+      expect(convertToString(123.45, "BIGDECIMAL")).toBe("123.45");
+      expect(convertToString(123.45, "FLOAT")).toBe("123.45");
+      expect(convertToString(123.45, "DECIMAL")).toBe("123.45");
+
+      // 날짜/시간 타입들
+      const date = new Date(2023, 5, 15, 14, 30, 22); // 2023-06-15 14:30:22
+      expect(convertToString(date, "DATE")).toBe("20230615");
+      expect(convertToString(date, "DATETIME")).toBe("20230615143022");
+      expect(convertToString(date, "TIME")).toBe("143022");
+
+      // BLOB 타입
+      const uint8Array = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
+      expect(convertToString(uint8Array, "BLOB")).toBe(uint8ArrayToBase64(uint8Array));
+
+      // STRING 및 default 케이스
+      expect(convertToString("Hello", "STRING")).toBe("Hello");
+      expect(convertToString("Hello", "UNKNOWN" as ColumnType)).toBe("Hello"); // default case
     })
   })
 

@@ -235,6 +235,8 @@ export function convertToString(value: XapiValueType, type: ColumnType): string 
       return dateToString(value as Date, type);
     case "BLOB":
       return uint8ArrayToBase64(value as Uint8Array);
+    case "STRING":
+      return String(value);
     default:
       return String(value);
   }
