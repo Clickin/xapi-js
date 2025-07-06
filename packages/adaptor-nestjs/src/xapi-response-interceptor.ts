@@ -30,7 +30,7 @@ export class XapiResponseInterceptor implements NestInterceptor<XapiRoot, Promis
             const xmlOutput = await writeString(value as XapiRoot);
             return xmlOutput!!;
           } catch (error) {
-            this.logger.error(`Failed to serialize XapiRoot to XML string: ${error.message}`);
+            this.logger.error(`Failed to serialize XapiRoot to XML string: ${error}`);
             throw error; // Re-throw the original error
           }
         }
