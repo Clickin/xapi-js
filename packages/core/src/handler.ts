@@ -1,6 +1,6 @@
 import { StaxXmlWriter } from "stax-xml";
 import * as txml from "txml";
-import { Col, ColumnType, NexaVersion, Parameter, RowType, XapiOptions, XapiValueType } from "./types";
+import { Col, ColumnType, InvalidXmlError, NexaVersion, Parameter, RowType, XapiOptions, XapiValueType } from "./types";
 import { _unescapeXml, convertToColumnType, convertToString, dateToString, makeWriterEntities, StringWritableStream, uint8ArrayToBase64 } from "./utils";
 import { Dataset, XapiRoot } from "./xapi-data";
 
@@ -25,6 +25,7 @@ let _options: XapiOptions = {
 /**
  * Initializes the X-API handler with the provided options.
  * @param options - The options to initialize the X-API handler.
+ * @returns void
  */
 export function initXapi(options: XapiOptions) {
   _options = {
@@ -56,7 +57,7 @@ export function parse(xml: string): XapiRoot {
   if (datasetsElements && datasetsElements?.length && datasetsElements.length > 0) {
     for (const datasetsElement of datasetsElements) {
       if (!datasetsElement.attributes || !datasetsElement.attributes.id) {
-        throw new Error("Dataset element must have an 'id' attribute");
+        throw new InvalidXmlError("Dataset element must have an 'id' attribute");
       }
       const datasetId = datasetsElement.attributes?.id!!;
       const dataset = new Dataset(datasetId);
@@ -76,14 +77,11 @@ export function parse(xml: string): XapiRoot {
 function parseValue(value?: string, type: ColumnType = "STRING"): XapiValueType {
   // entity decoding
   value = _unescapeXml(value);
-  if (type === undefined) {
-    type = "STRING"; // Default type if not specified
-  }
   return _options.parseToTypes ? convertToColumnType(value, type) : value;
 }
 
 function parseColumnInfo(columnInfoElement: tNodeObj | undefined, dataset: Dataset): void {
-  if (!columnInfoElement) return;
+  if (!columnInfoElement) throw new InvalidXmlError("ColumnInfo element is missing in the dataset");
   columnInfoElement.children?.forEach((colInfo: tNode) => {
     if (colInfo.tagName === 'ConstColumn') {
       dataset.addConstColumn({
@@ -103,8 +101,7 @@ function parseColumnInfo(columnInfoElement: tNodeObj | undefined, dataset: Datas
 }
 
 function parseRows(rowsElement: tNodeObj | undefined, dataset: Dataset): void {
-  if (!rowsElement) return;
-  rowsElement.children?.forEach((r: tNode) => {
+  rowsElement?.children?.forEach((r: tNode) => {
     if (r.tagName === 'Row') {
       const rowIndex = dataset.newRow();
       dataset.rows[rowIndex].type = (r.attributes?.type as RowType) || undefined;
@@ -114,7 +111,7 @@ function parseRows(rowsElement: tNodeObj | undefined, dataset: Dataset): void {
           const colId = col.attributes?.id!!;
           const value = col.children?.[0] as string;
           const columnInfo = dataset.getColumnInfo(colId);
-          if (!columnInfo) throw new Error(`Column with id ${colId} not found in dataset ${dataset.id}`);
+          if (!columnInfo) throw new InvalidXmlError(`Column with id ${colId} not found in dataset ${dataset.id}`);
           const castedValue = parseValue(value, columnInfo.type as ColumnType);
           dataset.rows[rowIndex].cols.push({ id: colId, value: castedValue });
         } else if (col.tagName === 'OrgRow') {
@@ -123,8 +120,7 @@ function parseRows(rowsElement: tNodeObj | undefined, dataset: Dataset): void {
             if (orgCol.tagName === 'Col') {
               const colId = orgCol.attributes?.id!!;
               const value = orgCol.children?.[0] as string;
-              const columnInfo = dataset.getColumnInfo(colId);
-              if (!columnInfo) throw new Error(`Column with id ${colId} not found in dataset ${dataset.id}`);
+              const columnInfo = dataset.getColumnInfo(colId)!!;
               const castedValue = parseValue(value, columnInfo.type as ColumnType);
               if (dataset && dataset.rows && dataset.rows[rowIndex] && dataset.rows[rowIndex].orgRow) {
                 dataset.rows[rowIndex].orgRow.push({ id: colId, value: castedValue });
@@ -135,10 +131,10 @@ function parseRows(rowsElement: tNodeObj | undefined, dataset: Dataset): void {
       });
     }
     else if (r.tagName === 'Col') {
-      throw new Error("Row must be defined before Col");
+      throw new InvalidXmlError("Row must be defined before Col");
     }
     else if (r.tagName === 'OrgRow') {
-      throw new Error("Row must be defined before OrgRow");
+      throw new InvalidXmlError("Row must be defined before OrgRow");
     }
   });
 }
@@ -250,7 +246,7 @@ async function writeDataset(writer: StaxXmlWriter, dataset: Dataset): Promise<vo
       await writer.writeStartElement("Row", { attributes: { type: row.type } });
     }
     else {
-      await writer.writeStartElement("Row"); // no type 
+      await writer.writeStartElement("Row"); // no type
     }
     for (const col of row.cols) {
       await writeColumn(writer, dataset, col);
@@ -270,13 +266,9 @@ async function writeDataset(writer: StaxXmlWriter, dataset: Dataset): Promise<vo
 async function writeColumn(writer: StaxXmlWriter, dataset: Dataset, col: Col): Promise<void> {
   if (col.value !== undefined && col.value !== null) {
     const colInfo = dataset.getColumnInfo(col.id);
-    if (colInfo && colInfo.type) {
-      await writer.writeStartElement("Col", { attributes: { id: col.id } });
-      await writer.writeCharacters(convertToString(col.value, colInfo.type));
-      await writer.writeEndElement();
-    } else {
-      throw new Error(`Column info for ${col.id} not found or type is undefined in dataset ${dataset.id}`);
-    }
+    await writer.writeStartElement("Col", { attributes: { id: col.id } });
+    await writer.writeCharacters(convertToString(col.value, colInfo!!.type));
+    await writer.writeEndElement();
   }
   else {
     // If value is undefined or null, we still write the Col element with an empty value

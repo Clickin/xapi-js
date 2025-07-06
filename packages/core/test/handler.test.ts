@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initXapi, parse, write, writeString } from "../src/handler";
-import { NexaVersion, XapiOptions, XplatformVersion } from "../src/types";
+import { InvalidXmlError, NexaVersion, XapiOptions, XplatformVersion } from "../src/types";
 import { Dataset, XapiRoot } from "../src/xapi-data";
 
 const sampleXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -895,7 +895,49 @@ describe("Xapi Handler Tests", () => {
         </Rows>
       </Dataset>
     </Root>`;
-    expect(() => parse(invalidXml)).toThrow("Column type for testCol not found in dataset invalid");
+    expect(() => parse(invalidXml)).toThrow("Unsupported column type: ERROR_TYPE");
+  });
+
+  it("should return empty XapiRoot if Root element is missing", () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+    <NoRootElement>
+      <Parameters>
+        <Parameter id="service">stock</Parameter>
+      </Parameters>
+    </NoRootElement>`;
+    const xapiRoot = parse(xml);
+    expect(xapiRoot).toBeInstanceOf(XapiRoot);
+    expect(xapiRoot.parameterSize()).toBe(0);
+    expect(xapiRoot.datasetSize()).toBe(0);
+  });
+
+  it("should handle missing or empty Datasets element", () => {
+    const xmlWithoutDatasets = `<?xml version="1.0" encoding="UTF-8"?>
+    <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+      <Parameters>
+        <Parameter id="service">stock</Parameter>
+      </Parameters>
+    </Root>`;
+    const xapiRootWithoutDatasets = parse(xmlWithoutDatasets);
+    expect(xapiRootWithoutDatasets.datasetSize()).toBe(0);
+
+    const xmlWithEmptyDatasets = `<?xml version="1.0" encoding="UTF-8"?>
+    <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+      <Parameters>
+        <Parameter id="service">stock</Parameter>
+      </Parameters>
+      <Datasets>
+      </Datasets>
+    </Root>`;
+    const xapiRootWithEmptyDatasets = parse(xmlWithEmptyDatasets);
+    expect(xapiRootWithEmptyDatasets.datasetSize()).toBe(0);
+  });
+
+  it("should handle empty XML string", () => {
+    const xapiRoot = parse("");
+    expect(xapiRoot).toBeInstanceOf(XapiRoot);
+    expect(xapiRoot.parameterSize()).toBe(0);
+    expect(xapiRoot.datasetSize()).toBe(0);
   });
 
 });
@@ -1064,5 +1106,55 @@ describe("writeString", () => {
 
     const result = await writeString(xapiRoot);
     expect(result).toContain('<ConstColumn id="emptyConstCol" size="0" type="STRING" value=""/>');
+  })
+  describe("parse", async () => {
+    it("should throw when no dataset id is provided", async () => {
+      const xmlWithoutId = `<?xml version="1.0" encoding="UTF-8"?>
+      <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+        <Dataset>
+          <ColumnInfo>
+            <Column id="testCol" size="10" type="STRING" />
+          </ColumnInfo>
+          <Rows>
+            <Row>
+              <Col id="testCol">testValue</Col>
+            </Row>
+          </Rows>
+        </Dataset>
+      </Root>`;
+      expect(() => parse(xmlWithoutId)).toThrow(InvalidXmlError);
+    });
+    it("should return if no columninfo is provided", async () => {
+      const xmlWithoutColumnInfo = `<?xml version="1.0" encoding="UTF-8"?>
+      <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+        <Dataset id="test">
+          <Rows>
+            <Row>
+              <Col id="testCol">testValue</Col>
+            </Row>
+          </Rows>
+        </Dataset>
+      </Root>`;
+      expect(() => parse(xmlWithoutColumnInfo)).toThrowError(InvalidXmlError);
+    });
+
+  })
+  describe("parseRows", async () => {
+    it("should throw when col not matched with columnInfo", async () => {
+      const xmlWithInvalidCol = `<?xml version="1.0" encoding="UTF-8"?>
+      <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+        <Dataset id="test">
+          <ColumnInfo>
+            <Column id="testCol" size="10" type="STRING" />
+          </ColumnInfo>
+          <Rows>
+            <Row>
+              <Col id="invalidCol">testValue</Col> <!-- This col does not match the columnInfo -->
+            </Row>
+          </Rows>
+        </Dataset>
+      </Root>`;
+      expect(() => parse(xmlWithInvalidCol)).toThrow(InvalidXmlError);
+    });
   })
 });

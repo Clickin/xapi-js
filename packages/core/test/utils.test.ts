@@ -275,4 +275,26 @@ describe("Utils Tests", () => {
       expect(result).toBe(expected);
     });
   })
+  describe("_unescapeXml additional tests", () => {
+    it("should return undefined when input is undefined (unmatched condition)", () => {
+      // Passing undefined to trigger "if (!str) return str"
+      const result = _unescapeXml(undefined);
+      expect(result).toBeUndefined();
+    });
+
+    it("should return empty string when input is an empty string (unmatched condition)", () => {
+      // Passing an empty string to trigger the same branch
+      const result = _unescapeXml("");
+      expect(result).toBe("");
+    });
+
+    it("should unescape multiple XML entities in a single string", () => {
+      const control1 = String.fromCharCode(1);
+      const control5 = String.fromCharCode(5);
+      const input = `Start &#1; middle &#5; end`;
+      const expected = `Start ${control1} middle ${control5} end`;
+      const result = _unescapeXml(input);
+      expect(result).toBe(expected);
+    });
+  });
 });

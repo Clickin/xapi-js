@@ -145,3 +145,10 @@ export class ColumnTypeError extends Error {
     this.name = "ColumnTypeError";
   }
 }
+
+export class InvalidXmlError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidXmlError";
+  }
+}
