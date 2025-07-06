@@ -1,7 +1,7 @@
 import { StaxXmlWriter } from "stax-xml";
 import * as txml from "txml";
 import { Col, ColumnType, NexaVersion, Parameter, RowType, XapiOptions, XapiValueType } from "./types";
-import { _unescapeXml, convertToColumnType, convertToString, dateToString, makeParseEntities, makeWriterEntities, StringWritableStream, uint8ArrayToBase64 } from "./utils";
+import { _unescapeXml, convertToColumnType, convertToString, dateToString, makeWriterEntities, StringWritableStream, uint8ArrayToBase64 } from "./utils";
 import { Dataset, XapiRoot } from "./xapi-data";
 
 type tNodeObj = {
@@ -11,7 +11,6 @@ type tNodeObj = {
 };
 type tNode = tNodeObj & string;
 
-const parseEntities = makeParseEntities();
 
 const defaultOptions: XapiOptions = {
   xapiVersion: NexaVersion,
@@ -34,12 +33,14 @@ export function initXapi(options: XapiOptions) {
 }
 
 
+
 /**
  * Parses an XML string into an XapiRoot object using txml.
  * @param xml - The string containing the XML data.
  * @returns A Promise that resolves to an XapiRoot object.
  */
 export function parse(xml: string): XapiRoot {
+
   const parsedXml: tNodeObj[] = txml.parse(xml);
   const xapiRoot = new XapiRoot();
 
@@ -49,103 +50,115 @@ export function parse(xml: string): XapiRoot {
   });
   if (rootElement === undefined) return xapiRoot;
   const parametersElement = rootElement.children?.find((node) => node.tagName === 'Parameters');
+
   parseParameters(parametersElement, xapiRoot);
-  const datasetsElement = rootElement.children?.find((node: tNode) => node.tagName === 'Dataset');
-  if (datasetsElement) {
-    const datasetId = datasetsElement.attributes?.id!!;
-    const dataset = new Dataset(datasetId);
-    xapiRoot.addDataset(dataset);
+  const datasetsElements = rootElement.children?.filter((node: tNode) => node.tagName === 'Dataset');
+  if (datasetsElements && datasetsElements?.length && datasetsElements.length > 0) {
+    for (const datasetsElement of datasetsElements) {
+      if (!datasetsElement.attributes || !datasetsElement.attributes.id) {
+        throw new Error("Dataset element must have an 'id' attribute");
+      }
+      const datasetId = datasetsElement.attributes?.id!!;
+      const dataset = new Dataset(datasetId);
+      xapiRoot.addDataset(dataset);
 
-    const columnInfoElement = datasetsElement.children?.find((node: tNode) => node.tagName === 'ColumnInfo');
-    parseColumnInfo(columnInfoElement, dataset);
+      const columnInfoElement = datasetsElement.children?.find((node: tNode) => node.tagName === 'ColumnInfo');
+      parseColumnInfo(columnInfoElement, dataset);
 
-    const rowsElement = datasetsElement.children?.find((node: tNode) => node.tagName === 'Rows');
-    parseRows(rowsElement, dataset);
+      const rowsElement = datasetsElement.children?.find((node: tNode) => node.tagName === 'Rows');
+      parseRows(rowsElement, dataset);
+    }
   }
 
   return xapiRoot;
 }
 
-function parseValue(value: string, type: ColumnType): XapiValueType {
+function parseValue(value?: string, type: ColumnType = "STRING"): XapiValueType {
   // entity decoding
   value = _unescapeXml(value);
+  if (type === undefined) {
+    type = "STRING"; // Default type if not specified
+  }
   return _options.parseToTypes ? convertToColumnType(value, type) : value;
 }
 
 function parseColumnInfo(columnInfoElement: tNodeObj | undefined, dataset: Dataset): void {
-  if (columnInfoElement) {
-    columnInfoElement.children?.forEach((colInfo: tNode) => {
-      if (colInfo.tagName === 'ConstColumn') {
-        dataset.addConstColumn({
-          id: colInfo.attributes?.id!!,
-          size: parseInt(colInfo.attributes?.size || "0", 10),
-          type: (colInfo.attributes?.type as ColumnType) || "STRING",
-          value: parseValue(colInfo.attributes?.value || "", colInfo.attributes?.type as ColumnType),
-        });
-      } else if (colInfo.tagName === 'Column') {
-        dataset.addColumn({
-          id: colInfo.attributes?.id!!,
-          size: parseInt(colInfo.attributes?.size || "0", 10),
-          type: (colInfo.attributes?.type as ColumnType) || "STRING",
-        });
-      }
-    });
-  }
+  if (!columnInfoElement) return;
+  columnInfoElement.children?.forEach((colInfo: tNode) => {
+    if (colInfo.tagName === 'ConstColumn') {
+      dataset.addConstColumn({
+        id: colInfo.attributes?.id!!,
+        size: parseInt(colInfo.attributes?.size || "0", 10),
+        type: (colInfo.attributes?.type as ColumnType) || "STRING",
+        value: parseValue(colInfo.attributes?.value, colInfo.attributes?.type as ColumnType),
+      });
+    } else if (colInfo.tagName === 'Column') {
+      dataset.addColumn({
+        id: colInfo.attributes?.id!!,
+        size: parseInt(colInfo.attributes?.size || "0", 10),
+        type: (colInfo.attributes?.type as ColumnType) || "STRING",
+      });
+    }
+  });
 }
 
 function parseRows(rowsElement: tNodeObj | undefined, dataset: Dataset): void {
-  if (rowsElement) {
-    rowsElement.children?.forEach((r: tNode) => {
-      if (r.tagName === 'Row') {
-        const rowIndex = dataset.newRow();
-        dataset.rows[rowIndex].type = (r.attributes?.type as RowType) || undefined;
+  if (!rowsElement) return;
+  rowsElement.children?.forEach((r: tNode) => {
+    if (r.tagName === 'Row') {
+      const rowIndex = dataset.newRow();
+      dataset.rows[rowIndex].type = (r.attributes?.type as RowType) || undefined;
 
-        r.children?.forEach((col: tNode) => {
-          if (col.tagName === 'Col') {
-            const colId = col.attributes?.id!!;
-            const value = col.children?.[0] as string;
-            const columnInfo = dataset.getColumnInfo(colId);
-            if (!columnInfo) throw new Error(`Column with id ${colId} not found in dataset ${dataset.id}`);
-            const castedValue = parseValue(value, columnInfo.type as ColumnType);
-            dataset.rows[rowIndex].cols.push({ id: colId, value: castedValue });
-          } else if (col.tagName === 'OrgRow') {
-            dataset.rows[rowIndex].orgRow = [];
-            col.children?.forEach((orgCol: tNode) => {
-              if (orgCol.tagName === 'Col') {
-                const colId = orgCol.attributes?.id!!;
-                const value = orgCol.children?.[0] as string;
-                const columnInfo = dataset.getColumnInfo(colId);
-                if (!columnInfo) throw new Error(`Column with id ${colId} not found in dataset ${dataset.id}`);
-                const castedValue = parseValue(value, columnInfo.type as ColumnType);
-                if (dataset && dataset.rows && dataset.rows[rowIndex] && dataset.rows[rowIndex].orgRow) {
-                  dataset.rows[rowIndex].orgRow.push({ id: colId, value: castedValue });
-                }
+      r.children?.forEach((col: tNode) => {
+        if (col.tagName === 'Col') {
+          const colId = col.attributes?.id!!;
+          const value = col.children?.[0] as string;
+          const columnInfo = dataset.getColumnInfo(colId);
+          if (!columnInfo) throw new Error(`Column with id ${colId} not found in dataset ${dataset.id}`);
+          const castedValue = parseValue(value, columnInfo.type as ColumnType);
+          dataset.rows[rowIndex].cols.push({ id: colId, value: castedValue });
+        } else if (col.tagName === 'OrgRow') {
+          dataset.rows[rowIndex].orgRow = [];
+          col.children?.forEach((orgCol: tNode) => {
+            if (orgCol.tagName === 'Col') {
+              const colId = orgCol.attributes?.id!!;
+              const value = orgCol.children?.[0] as string;
+              const columnInfo = dataset.getColumnInfo(colId);
+              if (!columnInfo) throw new Error(`Column with id ${colId} not found in dataset ${dataset.id}`);
+              const castedValue = parseValue(value, columnInfo.type as ColumnType);
+              if (dataset && dataset.rows && dataset.rows[rowIndex] && dataset.rows[rowIndex].orgRow) {
+                dataset.rows[rowIndex].orgRow.push({ id: colId, value: castedValue });
               }
-            });
-          }
-        });
-      }
-    });
-  }
+            }
+          });
+        }
+      });
+    }
+    else if (r.tagName === 'Col') {
+      throw new Error("Row must be defined before Col");
+    }
+    else if (r.tagName === 'OrgRow') {
+      throw new Error("Row must be defined before OrgRow");
+    }
+  });
 }
 
 
 
 function parseParameters(parametersElement: tNodeObj | undefined, xapiRoot: XapiRoot): void {
-  if (parametersElement) {
-    parametersElement.children?.forEach((p: tNode) => {
-      if (p.tagName === 'Parameter') {
-        const id = p.attributes?.id!!;
-        const type = (p.attributes?.type as ColumnType) || "STRING";
-        const value = p.children?.[0] as string;
-        xapiRoot.addParameter({
-          id,
-          type,
-          value: parseValue(value, type),
-        });
-      }
-    });
-  }
+  if (!parametersElement) return;
+  parametersElement.children?.forEach((p: tNode) => {
+    if (p.tagName === 'Parameter') {
+      const id = p.attributes?.id!!;
+      const type = (p.attributes?.type as ColumnType) || "STRING";
+      const value = p.children?.[0] as string;
+      xapiRoot.addParameter({
+        id,
+        type,
+        value: parseValue(value, type),
+      });
+    }
+  });
 }
 
 export async function writeString(root: XapiRoot): Promise<string> {

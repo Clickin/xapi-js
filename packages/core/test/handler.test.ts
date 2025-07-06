@@ -140,14 +140,7 @@ describe("Xapi Handler Tests", () => {
   });
 
   it("should parse ReadableStream input", async () => {
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode(sampleXml));
-        controller.close();
-      }
-    });
-
-    const xapiRoot = await parse(stream);
+    const xapiRoot = parse(sampleXml);
     expect(xapiRoot).toBeInstanceOf(XapiRoot);
     expect(xapiRoot.parameterSize()).toBe(2);
   });
@@ -156,7 +149,7 @@ describe("Xapi Handler Tests", () => {
     // Initialize with parseToTypes enabled
     initXapi({ parseToTypes: true });
 
-    const xapiRoot = await parse(complexXml);
+    const xapiRoot = parse(complexXml);
     expect(xapiRoot.parameterSize()).toBe(6);
     expect(xapiRoot.datasetSize()).toBe(1);
 
@@ -201,7 +194,7 @@ describe("Xapi Handler Tests", () => {
       </Dataset>
     </Root>`;
 
-    await expect(parse(invalidXml)).rejects.toThrow("Row must be defined before Col");
+    expect(() => parse(invalidXml)).toThrow("Row must be defined before Col");
   });
 
   it("should throw error when OrgRow is defined before Row", async () => {
@@ -219,7 +212,7 @@ describe("Xapi Handler Tests", () => {
       </Dataset>
     </Root>`;
 
-    await expect(parse(invalidXml)).rejects.toThrow("Row must be defined before OrgRow");
+    expect(() => parse(invalidXml)).toThrow("Row must be defined before OrgRow");
   });
 
   it("should throw error when column not found in dataset", async () => {
@@ -237,7 +230,7 @@ describe("Xapi Handler Tests", () => {
       </Dataset>
     </Root>`;
 
-    await expect(parse(invalidXml)).rejects.toThrow("Column with id invalidCol not found in dataset invalid");
+    expect(() => parse(invalidXml)).toThrow("Column with id invalidCol not found in dataset invalid");
   });
 
   it("should write complex data types correctly", async () => {
@@ -354,7 +347,7 @@ describe("Xapi Handler Tests", () => {
 
     dataset.addColumn({ id: "col1", size: 10, type: "STRING" });
     const rowIndex = dataset.newRow();
-    dataset.rows[rowIndex].cols.push({ id: "col1", value: null });
+    dataset.rows[rowIndex].cols.push({ id: "col1", value: undefined });
 
     root.addDataset(dataset);
 
@@ -692,7 +685,7 @@ describe("Xapi Handler Tests", () => {
       </Dataset>
     </Root>`;
 
-    const xapiRoot = await parse(xmlWithEmptyColumnSize);
+    const xapiRoot = parse(xmlWithEmptyColumnSize);
     const dataset = xapiRoot.datasets[0];
     const emptyConstCol = dataset.getConstColumnInfo("emptyConstCol");
     const defaultConstCol = dataset.getConstColumnInfo("defaultConstCol");
@@ -902,7 +895,7 @@ describe("Xapi Handler Tests", () => {
         </Rows>
       </Dataset>
     </Root>`;
-    await expect(parse(invalidXml)).rejects.toThrow("Column type for testCol not found in dataset invalid");
+    expect(() => parse(invalidXml)).toThrow("Unsupported column type: ERROR_TYPE");
   });
 
 });

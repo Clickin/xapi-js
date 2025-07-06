@@ -1,5 +1,33 @@
 import { ColumnType, ColumnTypeError, XapiValueType } from "./types";
 
+// make ReadableStream to string
+// can be async
+export function readStreamReadAll(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let result = '';
+
+  return new Promise((resolve, reject) => {
+    function read() {
+      reader.read().then(({ done, value }) => {
+        if (done) {
+          resolve(result);
+        } else {
+          result += decoder.decode(value, { stream: true });
+          read();
+        }
+      }).catch(reject);
+    }
+    read();
+  });
+}
+
+export function arrayBufferToString(buffer: ArrayBuffer): string {
+  const decoder = new TextDecoder();
+  return decoder.decode(buffer);
+}
+
+
 /**
  * Creates an array of entities for parsing XML, including control characters.
  * @returns An array of objects, each with an `entity` (e.g., "&#1;") and its `value` (e.g., "\x01").
@@ -233,7 +261,7 @@ export function convertToString(value: XapiValueType, type: ColumnType): string 
 }
 
 const entities = makeParseEntities();
-export function _unescapeXml(str: string): string {
+export function _unescapeXml(str?: string): string | undefined {
   if (!str) return str; // Return empty string if input is empty
   const regex = new RegExp(entities.map(e => e.entity).join('|'), 'g');
   return str.replace(regex, (match) => {

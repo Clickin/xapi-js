@@ -25,6 +25,7 @@ export async function xapiFetch(url: string, xapi: XapiRoot, options?: RequestIn
   if (!response.body) {
     throw new Error('Response body is empty');
   }
-  const retRoot = await parse(response.body);
+  const text = await response.text();
+  const retRoot = parse(text);
   return retRoot;
 }
