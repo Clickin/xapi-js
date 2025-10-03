@@ -1,6 +1,6 @@
 {
   "name": "xapi-js",
-  "private": true,
+  "private": false,
   "version": "1.2.0",
   "description": "A TypeScript implementation of Tobesoft's X-API for communication with Nexacro Platform and XPlatform solutions.",
   "repository": {
