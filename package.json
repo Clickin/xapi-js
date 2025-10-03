@@ -1,6 +1,6 @@
 {
   "name": "xapi-js",
-  "private": false,
+  "private": true,
   "version": "1.2.0",
   "description": "A TypeScript implementation of Tobesoft's X-API for communication with Nexacro Platform and XPlatform solutions.",
   "repository": {
@@ -15,6 +15,7 @@
   "license": "MIT",
   "scripts": {
     "build": "pnpm -r build",
+    "publish": "pnpm -r publish",
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage"
