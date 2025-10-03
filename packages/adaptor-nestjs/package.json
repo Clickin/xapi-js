@@ -17,6 +17,9 @@
     "test:watch": "vitest",
     "coverage": "vitest run --coverage"
   },
+  "files": [
+    "dist"
+  ],
   "keywords": [
     "tobesoft",
     "x-api",

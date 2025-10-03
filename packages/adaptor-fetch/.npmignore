@@ -1,0 +1,15 @@
+# Source files
+src/
+test/
+
+# Build configs
+tsconfig.json
+tsdown.config.ts
+vitest.config.ts
+
+# Test coverage
+coverage/
+
+# Development files
+*.test.ts
+*.spec.ts
