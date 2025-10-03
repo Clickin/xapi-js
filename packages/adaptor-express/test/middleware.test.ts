@@ -37,7 +37,7 @@ describe('xapiExpress middleware', () => {
     reqHeaders.set('content-type', 'application/xml');
     const mockReq = createRequest({
       method: "POST",
-      body: sampleXml,
+      body: sampleXml as unknown as Body,
       headers: {
         "content-type": "application/xml",
       },
@@ -69,7 +69,7 @@ describe('xapiExpress middleware', () => {
   it('should call next if content-type is not application/xml', async () => {
     const mockReq = createRequest({
       method: "POST",
-      body: "some plain text",
+      body: "some plain text" as unknown as Body,
       headers: {
         "content-type": "text/plain",
       },
@@ -87,7 +87,7 @@ describe('xapiExpress middleware', () => {
   it('should call next with an error if XML parsing fails', async () => {
     const mockReq = createRequest({
       method: "POST",
-      body: "invalid xml",
+      body: "invalid xml" as unknown as Body,
       headers: {
         "content-type": "application/xml",
       },

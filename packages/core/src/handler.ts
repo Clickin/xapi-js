@@ -45,29 +45,51 @@ export function parse(xml: string): XapiRoot {
   const parsedXml: tNodeObj[] = txml.parse(xml);
   const xapiRoot = new XapiRoot();
 
-  const rootElement = parsedXml.find((node) => {
-    const rootNode = node as tNode;
-    return rootNode.tagName === 'Root';
-  });
+  let rootElement: tNodeObj | undefined;
+  for (let i = 0; i < parsedXml.length; i++) {
+    if (parsedXml[i].tagName === 'Root') {
+      rootElement = parsedXml[i];
+      break;
+    }
+  }
   if (rootElement === undefined) return xapiRoot;
-  const parametersElement = rootElement.children?.find((node) => node.tagName === 'Parameters');
 
-  parseParameters(parametersElement, xapiRoot);
-  const datasetsElements = rootElement.children?.filter((node: tNode) => node.tagName === 'Dataset');
-  if (datasetsElements && datasetsElements?.length && datasetsElements.length > 0) {
-    for (const datasetsElement of datasetsElements) {
-      if (!datasetsElement.attributes || !datasetsElement.attributes.id) {
-        throw new InvalidXmlError("Dataset element must have an 'id' attribute");
+  const rootChildren = rootElement.children;
+  if (rootChildren && rootChildren.length > 0) {
+    for (let i = 0; i < rootChildren.length; i++) {
+      const child = rootChildren[i];
+      const tagName = child.tagName;
+
+      if (tagName === 'Parameters') {
+        parseParameters(child, xapiRoot);
+      } else if (tagName === 'Dataset') {
+        if (!child.attributes || !child.attributes.id) {
+          throw new InvalidXmlError("Dataset element must have an 'id' attribute");
+        }
+        const datasetId = child.attributes.id;
+        const dataset = new Dataset(datasetId);
+        xapiRoot.addDataset(dataset);
+
+        const datasetChildren = child.children;
+        let columnInfoElement: tNode | undefined;
+        let rowsElement: tNode | undefined;
+        if (datasetChildren) {
+          for (let j = 0; j < datasetChildren.length; j++) {
+            const datasetChild = datasetChildren[j];
+            const childTagName = datasetChild.tagName;
+            if (childTagName === 'ColumnInfo') {
+              columnInfoElement = datasetChild;
+            } else if (childTagName === 'Rows') {
+              rowsElement = datasetChild;
+            }
+            // Early exit if both found
+            if (columnInfoElement && rowsElement) break;
+          }
+        }
+
+        parseColumnInfo(columnInfoElement, dataset);
+        parseRows(rowsElement, dataset);
       }
-      const datasetId = datasetsElement.attributes?.id!!;
-      const dataset = new Dataset(datasetId);
-      xapiRoot.addDataset(dataset);
-
-      const columnInfoElement = datasetsElement.children?.find((node: tNode) => node.tagName === 'ColumnInfo');
-      parseColumnInfo(columnInfoElement, dataset);
-
-      const rowsElement = datasetsElement.children?.find((node: tNode) => node.tagName === 'Rows');
-      parseRows(rowsElement, dataset);
     }
   }
 
@@ -82,71 +104,107 @@ function parseValue(value?: string, type: ColumnType = "STRING"): XapiValueType 
 
 function parseColumnInfo(columnInfoElement: tNodeObj | undefined, dataset: Dataset): void {
   if (!columnInfoElement) throw new InvalidXmlError("ColumnInfo element is missing in the dataset");
-  columnInfoElement.children?.forEach((colInfo: tNode) => {
-    if (colInfo.tagName === 'ConstColumn') {
+  const children = columnInfoElement.children;
+  if (!children) return;
+
+  for (let i = 0; i < children.length; i++) {
+    const colInfo = children[i];
+    const tagName = colInfo.tagName;
+
+    if (tagName === 'ConstColumn') {
+      const attrs = colInfo.attributes;
+      const sizeStr = attrs?.size;
       dataset.addConstColumn({
-        id: colInfo.attributes?.id!!,
-        size: parseInt(colInfo.attributes?.size || "0", 10),
-        type: (colInfo.attributes?.type as ColumnType) || "STRING",
-        value: parseValue(colInfo.attributes?.value, colInfo.attributes?.type as ColumnType),
+        id: attrs?.id!!,
+        size: sizeStr ? parseInt(sizeStr, 10) : 0,
+        type: (attrs?.type as ColumnType) || "STRING",
+        value: parseValue(attrs?.value, attrs?.type as ColumnType),
       });
-    } else if (colInfo.tagName === 'Column') {
+    } else if (tagName === 'Column') {
+      const attrs = colInfo.attributes;
+      const sizeStr = attrs?.size;
       dataset.addColumn({
-        id: colInfo.attributes?.id!!,
-        size: parseInt(colInfo.attributes?.size || "0", 10),
-        type: (colInfo.attributes?.type as ColumnType) || "STRING",
+        id: attrs?.id!!,
+        size: sizeStr ? parseInt(sizeStr, 10) : 0,
+        type: (attrs?.type as ColumnType) || "STRING",
       });
     }
-  });
+  }
 }
 
 function parseRows(rowsElement: tNodeObj | undefined, dataset: Dataset): void {
-  rowsElement?.children?.forEach((r: tNode) => {
-    if (r.tagName === 'Row') {
-      const rowIndex = dataset.newRow();
-      dataset.rows[rowIndex].type = (r.attributes?.type as RowType) || undefined;
+  const rows = rowsElement?.children;
+  if (!rows) return;
 
-      r.children?.forEach((col: tNode) => {
-        if (col.tagName === 'Col') {
-          const colId = col.attributes?.id!!;
+  const datasetRows = dataset.rows;
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const tagName = r.tagName;
+
+    if (tagName === 'Row') {
+      const rowIndex = dataset.newRow();
+      const currentRow = datasetRows[rowIndex];
+      currentRow.type = (r.attributes?.type as RowType) || undefined;
+
+      const cols = r.children;
+      if (!cols) {
+        continue;
+      }
+      for (let j = 0; j < cols.length; j++) {
+        const col = cols[j];
+        const colTagName = col.tagName;
+
+        if (colTagName === 'Col') {
+          const attrs = col.attributes;
+          const colId = attrs?.id!!;
           const value = col.children?.[0] as string;
           const columnInfo = dataset.getColumnInfo(colId);
           if (!columnInfo) throw new InvalidXmlError(`Column with id ${colId} not found in dataset ${dataset.id}`);
           const castedValue = parseValue(value, columnInfo.type as ColumnType);
-          dataset.rows[rowIndex].cols.push({ id: colId, value: castedValue });
-        } else if (col.tagName === 'OrgRow') {
-          dataset.rows[rowIndex].orgRow = [];
-          col.children?.forEach((orgCol: tNode) => {
+          currentRow.cols.push({ id: colId, value: castedValue });
+        } else if (colTagName === 'OrgRow') {
+          const orgRow: typeof currentRow.orgRow = [];
+          currentRow.orgRow = orgRow;
+
+          const orgCols = col.children;
+          if (!orgCols) {
+            continue;
+          }
+          for (let k = 0; k < orgCols.length; k++) {
+            const orgCol = orgCols[k];
             if (orgCol.tagName === 'Col') {
-              const colId = orgCol.attributes?.id!!;
+              const orgAttrs = orgCol.attributes;
+              const colId = orgAttrs?.id!!;
               const value = orgCol.children?.[0] as string;
               const columnInfo = dataset.getColumnInfo(colId)!!;
               const castedValue = parseValue(value, columnInfo.type as ColumnType);
-              if (dataset && dataset.rows && dataset.rows[rowIndex] && dataset.rows[rowIndex].orgRow) {
-                dataset.rows[rowIndex].orgRow.push({ id: colId, value: castedValue });
-              }
+              orgRow.push({ id: colId, value: castedValue });
             }
-          });
+          }
         }
-      });
-    }
-    else if (r.tagName === 'Col') {
+      }
+    } else if (tagName === 'Col') {
       throw new InvalidXmlError("Row must be defined before Col");
-    }
-    else if (r.tagName === 'OrgRow') {
+    } else if (tagName === 'OrgRow') {
       throw new InvalidXmlError("Row must be defined before OrgRow");
     }
-  });
+  }
 }
 
 
 
 function parseParameters(parametersElement: tNodeObj | undefined, xapiRoot: XapiRoot): void {
   if (!parametersElement) return;
-  parametersElement.children?.forEach((p: tNode) => {
+  const children = parametersElement.children;
+  if (!children) return;
+
+  for (let i = 0; i < children.length; i++) {
+    const p = children[i];
     if (p.tagName === 'Parameter') {
-      const id = p.attributes?.id!!;
-      const type = (p.attributes?.type as ColumnType) || "STRING";
+      const attrs = p.attributes;
+      const id = attrs?.id!!;
+      const type = (attrs?.type as ColumnType) || "STRING";
       const value = p.children?.[0] as string;
       xapiRoot.addParameter({
         id,
@@ -154,7 +212,7 @@ function parseParameters(parametersElement: tNodeObj | undefined, xapiRoot: Xapi
         value: parseValue(value, type),
       });
     }
-  });
+  }
 }
 
 export function write(root: XapiRoot): string {
