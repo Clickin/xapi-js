@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ColumnType, ColumnTypeError } from "../src";
+import { ColumnType, ColumnTypeError, XapiRoot } from "../src";
 import {
   StringWritableStream,
   _unescapeXml,
@@ -8,6 +8,7 @@ import {
   convertToColumnType,
   convertToString,
   dateToString,
+  isXapiRoot,
   makeParseEntities,
   makeWriterEntities,
   stringToDate,
@@ -322,4 +323,16 @@ describe("Utils Tests", () => {
       expect(result).toBe(expected);
     });
   });
+  describe("isXapiRoot test", () => {
+    it("if XapiRoot then ok", () => {
+      const root = new XapiRoot();
+      const result = isXapiRoot(root);
+      expect(result).toBe(true)
+    })
+    it("if not XapiRoot then false", () => {
+      const root = {};
+      const result = isXapiRoot(root);
+      expect(result).toBe(false)
+    })
+  })
 });

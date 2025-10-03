@@ -1,7 +1,7 @@
-import { StaxXmlWriter } from "stax-xml";
+import { StaxXmlWriterSync } from "stax-xml";
 import * as txml from "txml";
 import { Col, ColumnType, InvalidXmlError, NexaVersion, Parameter, RowType, XapiOptions, XapiValueType } from "./types";
-import { _unescapeXml, convertToColumnType, convertToString, dateToString, makeWriterEntities, StringWritableStream, uint8ArrayToBase64 } from "./utils";
+import { _unescapeXml, convertToColumnType, convertToString, dateToString, makeWriterEntities, uint8ArrayToBase64 } from "./utils";
 import { Dataset, XapiRoot } from "./xapi-data";
 
 type tNodeObj = {
@@ -157,68 +157,63 @@ function parseParameters(parametersElement: tNodeObj | undefined, xapiRoot: Xapi
   });
 }
 
-export async function writeString(root: XapiRoot): Promise<string> {
-  const stringStream = new StringWritableStream();
-  await write(stringStream, root);
-  return stringStream.getResult();
-}
-
-export async function write(stream: WritableStream<Uint8Array>, root: XapiRoot): Promise<void> {
-  const writer = new StaxXmlWriter(stream, {
+export function write(root: XapiRoot): string {
+  const writer = new StaxXmlWriterSync({
     addEntities: makeWriterEntities(),
     encoding: "UTF-8",
     indentString: "  ",
     prettyPrint: true,
   });
-  await writer.writeStartDocument("1.0", "UTF-8");
-  await writer.writeStartElement("Root", { // Root
+  writer.writeStartDocument("1.0", "UTF-8");
+  writer.writeStartElement("Root", {
     attributes: {
       xmlns: _options.xapiVersion?.xmlns || NexaVersion.xmlns,
       version: _options.xapiVersion?.version || NexaVersion.version,
     }
   })
   if (root.parameterSize() > 0) {
-    await writeParameters(writer, root.iterParameters());
+    writeParameters(writer, root.iterParameters());
   }
   if (root.datasetSize() > 0) {
-    await writer.writeStartElement("Datasets");
+    writer.writeStartElement("Datasets");
     for (const dataset of root.iterDatasets()) {
-      await writeDataset(writer, dataset);
+      writeDataset(writer, dataset);
     }
-    await writer.writeEndElement(); // </Datasets>
+    writer.writeEndElement(); // </Datasets>
   }
-  await writer.writeEndElement();
+  writer.writeEndElement();
+  return writer.getXmlString();
 }
-async function writeParameters(writer: StaxXmlWriter, iterator: IterableIterator<Parameter>): Promise<void> {
+function writeParameters(writer: StaxXmlWriterSync, iterator: IterableIterator<Parameter>): void {
   if (iterator) {
-    await writer.writeStartElement("Parameters");
+    writer.writeStartElement("Parameters");
     for (const parameter of iterator) {
-      await writer.writeStartElement("Parameter", { attributes: { id: parameter.id } })
+      writer.writeStartElement("Parameter", { attributes: { id: parameter.id } })
       if (parameter.type !== undefined) {
-        await writer.writeAttribute("type", parameter.type);
+        writer.writeAttribute("type", parameter.type);
       }
       if (parameter.value !== undefined) {
         if (typeof parameter.value === "string") {
-          await writer.writeAttribute("value", parameter.value);
+          writer.writeAttribute("value", parameter.value);
         } else if (parameter.value instanceof Date) {
-          await writer.writeAttribute("value", dateToString(parameter.value, parameter.type as Extract<ColumnType, "DATE" | "DATETIME" | "TIME">));
+          writer.writeAttribute("value", dateToString(parameter.value, parameter.type as Extract<ColumnType, "DATE" | "DATETIME" | "TIME">));
         } else if (parameter.value instanceof Uint8Array) {
-          await writer.writeAttribute("value", uint8ArrayToBase64(parameter.value));
+          writer.writeAttribute("value", uint8ArrayToBase64(parameter.value));
         } else {
-          await writer.writeAttribute("value", String(parameter.value));
+          writer.writeAttribute("value", String(parameter.value));
         }
       }
-      await writer.writeEndElement();
+      writer.writeEndElement();
     }
-    await writer.writeEndElement();
+    writer.writeEndElement();
   }
 }
-async function writeDataset(writer: StaxXmlWriter, dataset: Dataset): Promise<void> {
-  await writer.writeStartElement("Dataset", { attributes: { id: dataset.id } });
+function writeDataset(writer: StaxXmlWriterSync, dataset: Dataset): void {
+  writer.writeStartElement("Dataset", { attributes: { id: dataset.id } });
   if (dataset.constColumnSize() > 0 || dataset.columnSize() > 0) {
-    await writer.writeStartElement("ColumnInfo");
+    writer.writeStartElement("ColumnInfo");
     for (const constCol of dataset.iterConstColumns()) {
-      await writer.writeStartElement("ConstColumn", {
+      writer.writeStartElement("ConstColumn", {
         attributes: {
           id: constCol.id,
           size: String(constCol.size),
@@ -229,7 +224,7 @@ async function writeDataset(writer: StaxXmlWriter, dataset: Dataset): Promise<vo
       });
     }
     for (const col of dataset.iterColumns()) {
-      await writer.writeStartElement("Column", {
+      writer.writeStartElement("Column", {
         attributes: {
           id: col.id,
           size: String(col.size),
@@ -238,40 +233,40 @@ async function writeDataset(writer: StaxXmlWriter, dataset: Dataset): Promise<vo
         selfClosing: true
       });
     }
-    await writer.writeEndElement(); // </ColumnInfo>
+    writer.writeEndElement(); // </ColumnInfo>
   }
-  await writer.writeStartElement("Rows");
+  writer.writeStartElement("Rows");
   for (const row of dataset.iterRows()) {
     if (row.type) {
-      await writer.writeStartElement("Row", { attributes: { type: row.type } });
+      writer.writeStartElement("Row", { attributes: { type: row.type } });
     }
     else {
-      await writer.writeStartElement("Row"); // no type
+      writer.writeStartElement("Row"); // no type
     }
     for (const col of row.cols) {
-      await writeColumn(writer, dataset, col);
+      writeColumn(writer, dataset, col);
     }
     if (row.orgRow && row.orgRow.length > 0) {
-      await writer.writeStartElement("OrgRow");
+      writer.writeStartElement("OrgRow");
       for (const orgCol of row.orgRow) {
-        await writeColumn(writer, dataset, orgCol);
+        writeColumn(writer, dataset, orgCol);
       }
-      await writer.writeEndElement(); // </OrgRow>
+      writer.writeEndElement(); // </OrgRow>
     }
-    await writer.writeEndElement(); // </Row>
+    writer.writeEndElement(); // </Row>
   }
-  await writer.writeEndElement(); // </Rows>
-  await writer.writeEndElement(); // </Dataset>
+  writer.writeEndElement(); // </Rows>
+  writer.writeEndElement(); // </Dataset>
 }
-async function writeColumn(writer: StaxXmlWriter, dataset: Dataset, col: Col): Promise<void> {
+function writeColumn(writer: StaxXmlWriterSync, dataset: Dataset, col: Col): void {
   if (col.value !== undefined && col.value !== null) {
     const colInfo = dataset.getColumnInfo(col.id);
-    await writer.writeStartElement("Col", { attributes: { id: col.id } });
-    await writer.writeCharacters(convertToString(col.value, colInfo!!.type));
-    await writer.writeEndElement();
+    writer.writeStartElement("Col", { attributes: { id: col.id } });
+    writer.writeCharacters(convertToString(col.value, colInfo!!.type));
+    writer.writeEndElement();
   }
   else {
     // If value is undefined or null, we still write the Col element with an empty value
-    await writer.writeStartElement("Col", { attributes: { id: col.id }, selfClosing: true });
+    writer.writeStartElement("Col", { attributes: { id: col.id }, selfClosing: true });
   }
 }

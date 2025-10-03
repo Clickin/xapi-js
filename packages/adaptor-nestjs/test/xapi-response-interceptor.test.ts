@@ -1,15 +1,15 @@
-import { describe, it, expect, vi } from 'vitest';
-import { of, firstValueFrom } from 'rxjs';
-import { XapiResponseInterceptor } from '../src/xapi-response-interceptor';
 import { CallHandler, ExecutionContext } from '@nestjs/common';
-import { XapiRoot, Dataset, Column, writeString } from '@xapi-js/core';
+import { Dataset, write, XapiRoot } from '@xapi-js/core';
+import { firstValueFrom, of } from 'rxjs';
+import { describe, expect, it, vi } from 'vitest';
+import { XapiResponseInterceptor } from '../src/xapi-response-interceptor';
 
-// Mock the writeString function from @xapi-js/core
+// Mock the write function from @xapi-js/core
 vi.mock('@xapi-js/core', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    writeString: vi.fn(actual.writeString), // Use the actual implementation for mocking
+    write: vi.fn(actual.write), // Use the actual implementation for mocking
   };
 });
 
@@ -19,7 +19,7 @@ describe('XapiResponseInterceptor', () => {
   beforeEach(() => {
     interceptor = new XapiResponseInterceptor();
     // Reset the mock before each test
-    vi.mocked(writeString).mockClear(); // Use writeString directly
+    vi.mocked(write).mockClear(); // Use write directly
   });
 
   it('should be defined', () => {
@@ -90,7 +90,7 @@ describe('XapiResponseInterceptor', () => {
     await expect(firstValueFrom(observableResult)).rejects.toThrow('Handler did not return an XapiRoot instance');
   });
 
-  it('should re-throw error from writeString', async () => {
+  it('should re-throw error from write', async () => {
     const xapiRootOutput = new XapiRoot();
 
     const mockContext = {
@@ -104,8 +104,10 @@ describe('XapiResponseInterceptor', () => {
       handle: () => of(xapiRootOutput),
     } as CallHandler;
 
-    const testError = new Error('Test writeString error');
-    vi.mocked(writeString).mockRejectedValue(testError);
+    const testError = new Error('Test write error');
+    vi.mocked(write).mockImplementation(() => {
+      throw testError;
+    });
 
     const observableResult = interceptor.intercept(mockContext, mockCallHandler);
     await expect(firstValueFrom(observableResult)).rejects.toThrow(testError);

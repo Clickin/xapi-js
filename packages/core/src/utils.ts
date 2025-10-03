@@ -1,4 +1,5 @@
 import { ColumnType, ColumnTypeError, XapiValueType } from "./types";
+import { XapiRoot } from "./xapi-data";
 
 // make ReadableStream to string
 // can be async
@@ -250,4 +251,8 @@ export function _unescapeXml(str?: string): string | undefined {
     const entity = entities.find(e => e.entity === match);
     return entity ? entity.value : match; // If not found, return the original match
   });
+}
+
+export function isXapiRoot(value: unknown): value is XapiRoot {
+  return value instanceof XapiRoot
 }

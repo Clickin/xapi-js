@@ -1,4 +1,4 @@
-import { parse, StringWritableStream, write, XapiRoot } from '@xapi-js/core';
+import { parse, write, XapiRoot } from '@xapi-js/core';
 import { NextFunction, Request, Response } from 'express';
 
 /**
@@ -22,12 +22,11 @@ export const xapiExpress = (handler: XapiExpressHandler) => {
     }
 
     try {
-      const xapiReq = await parse(req.body);
+      const xapiReq = parse(req.body);
       const xapiRes = await handler(xapiReq);
-      const stringWritable = new StringWritableStream();
-      await write(stringWritable, xapiRes);
+      const xml = write(xapiRes);
       res.setHeader('Content-Type', 'application/xml');
-      res.write(stringWritable.toString());
+      res.write(xml);
       res.end();
     } catch (error) {
       next(error);

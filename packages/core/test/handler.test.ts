@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initXapi, parse, write, writeString } from "../src/handler";
+import { initXapi, parse, write } from "../src/handler";
 import { InvalidXmlError, NexaVersion, XapiOptions, XplatformVersion } from "../src/types";
 import { Dataset, XapiRoot } from "../src/xapi-data";
 
@@ -122,10 +122,8 @@ describe("Xapi Handler Tests", () => {
   });
 
   it("should write XapiRoot to XML", async () => {
-    const xapiRoot = await parse(sampleXml);
-    const writer = new StringWritableStream();
-    await write(writer, xapiRoot);
-    const xmlOutput = writer.getResult();
+    const xapiRoot = parse(sampleXml);
+    const xmlOutput = write(xapiRoot);
     expect(xmlOutput).toContain('<Dataset id="output">');
   });
 
@@ -252,9 +250,7 @@ describe("Xapi Handler Tests", () => {
     dataset.rows[0].cols.push({ id: "testCol", value: "testValue" });
     root.addDataset(dataset);
 
-    const writer = new StringWritableStream();
-    await write(writer, root);
-    const xmlOutput = writer.getResult();
+    const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('id="stringParam"');
     expect(xmlOutput).toContain('value="test"');
@@ -274,10 +270,7 @@ describe("Xapi Handler Tests", () => {
       type: "INT",
       value: 42
     });
-
-    const writer = new StringWritableStream();
-    await write(writer, root);
-    const xmlOutput = writer.getResult();
+    const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('id="numberParam"');
     expect(xmlOutput).toContain('type="INT"');
@@ -286,9 +279,7 @@ describe("Xapi Handler Tests", () => {
 
   it("should write empty root without parameters or datasets", async () => {
     const root = new XapiRoot();
-    const writer = new StringWritableStream();
-    await write(writer, root);
-    const xmlOutput = writer.getResult();
+    const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('<Root');
     expect(xmlOutput).not.toContain('<Parameters>');
@@ -313,9 +304,7 @@ describe("Xapi Handler Tests", () => {
 
     root.addDataset(dataset);
 
-    const writer = new StringWritableStream();
-    await write(writer, root);
-    const xmlOutput = writer.getResult();
+    const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('<Row type="update">');
     expect(xmlOutput).toContain('<OrgRow>');
@@ -332,10 +321,7 @@ describe("Xapi Handler Tests", () => {
     dataset.rows[rowIndex].cols.push({ id: "col1", value: undefined });
 
     root.addDataset(dataset);
-
-    const writer = new StringWritableStream();
-    await write(writer, root);
-    const xmlOutput = writer.getResult();
+    const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('<Col id="col1"');
     expect(xmlOutput).toContain('/>'); // self-closing tag
@@ -351,9 +337,7 @@ describe("Xapi Handler Tests", () => {
 
     root.addDataset(dataset);
 
-    const writer = new StringWritableStream();
-    await write(writer, root);
-    const xmlOutput = writer.getResult();
+    const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('<Col id="col1"');
     expect(xmlOutput).toContain('/>'); // self-closing tag
@@ -363,9 +347,7 @@ describe("Xapi Handler Tests", () => {
     const root = new XapiRoot();
     root.addParameter({ id: "undefinedParam" }); // no value
 
-    const writer = new StringWritableStream();
-    await write(writer, root);
-    const xmlOutput = writer.getResult();
+    const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('id="undefinedParam"');
     expect(xmlOutput).not.toContain('value=');
@@ -457,9 +439,7 @@ describe("Xapi Handler Tests", () => {
     initXapi({ xapiVersion: XplatformVersion });
 
     const root = new XapiRoot();
-    const writer = new StringWritableStream();
-    await write(writer, root);
-    const xmlOutput = writer.getResult();
+    const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('xmlns="http://www.tobesoft.com/platform/Dataset"');
     expect(xmlOutput).toContain('version="4000"');
@@ -774,9 +754,7 @@ describe("Xapi Handler Tests", () => {
       value: new Date(2023, 5, 15, 14, 30, 22)
     });
 
-    const writer = new StringWritableStream();
-    await write(writer, root);
-    const xmlOutput = writer.getResult();
+    const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('id="timeParam"');
     expect(xmlOutput).toContain('type="TIME"');
@@ -791,9 +769,7 @@ describe("Xapi Handler Tests", () => {
       value: 12345
     });
 
-    const writer = new StringWritableStream();
-    await write(writer, root);
-    const xmlOutput = writer.getResult();
+    const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('id="testNumberParam"');
     expect(xmlOutput).toContain('type="INT"');
@@ -805,12 +781,10 @@ describe("Xapi Handler Tests", () => {
     root.addParameter({
       id: "testBooleanParam",
       type: "STRING", // Type doesn't matter much for this test, as it's about the value conversion
-      value: true
+      value: "true"
     });
 
-    const writer = new StringWritableStream();
-    await write(writer, root);
-    const xmlOutput = writer.getResult();
+    const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('id="testBooleanParam"');
     expect(xmlOutput).toContain('value="true"');
@@ -821,12 +795,10 @@ describe("Xapi Handler Tests", () => {
     root.addParameter({
       id: "testBooleanParam",
       type: "STRING", // Type doesn't matter much for this test, as it's about the value conversion
-      value: true
+      value: "true"
     });
 
-    const writer = new StringWritableStream();
-    await write(writer, root);
-    const xmlOutput = writer.getResult();
+    const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('id="testBooleanParam"');
     expect(xmlOutput).toContain('value="true"');
@@ -871,10 +843,7 @@ describe("Xapi Handler Tests", () => {
     dataset.rows[0].cols.push({ id: "unknownCol", value: "testValue" });
     root.addDataset(dataset);
 
-    const writer = new StringWritableStream();
-    // Should not throw an error
-    await write(writer, root);
-    const xmlOutput = writer.getResult();
+    const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('type="UNKNOWN"');
     expect(xmlOutput).toContain('testValue');
@@ -1075,7 +1044,7 @@ describe("convertToString", async () => {
     dataset.setColumn(0, "blobCol", new Uint8Array([116, 101, 115, 116])); // "test" in base64
     dataset.setColumn(0, "stringCol", "test");
     caseXapiRoot.addDataset(dataset);
-    const xmlString = await writeString(caseXapiRoot);
+    const xmlString = write(caseXapiRoot);
     expect(xmlString).toContain('<Col id="intCol">123</Col>');
     expect(xmlString).toContain('<Col id="bigdecimalCol">1234567890</Col>');
     expect(xmlString).toContain('<Col id="floatCol">3.14</Col>');
@@ -1092,7 +1061,7 @@ describe("writeString", () => {
   it("should write the correct XML string", async () => {
     const xapiRoot = new XapiRoot();
     // Add test data to xapiRoot
-    const result = await writeString(xapiRoot);
+    const result = write(xapiRoot);
     expect(result).toContain("<Root");
     expect(result).toContain("</Root>");
   });
@@ -1104,7 +1073,7 @@ describe("writeString", () => {
     }); // No value provided
     xapiRoot.addDataset(dataset);
 
-    const result = await writeString(xapiRoot);
+    const result = write(xapiRoot);
     expect(result).toContain('<ConstColumn id="emptyConstCol" size="0" type="STRING" value=""/>');
   })
   describe("parse", async () => {
