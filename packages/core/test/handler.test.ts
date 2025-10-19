@@ -1125,5 +1125,49 @@ describe("writeString", () => {
       </Root>`;
       expect(() => parse(xmlWithInvalidCol)).toThrow(InvalidXmlError);
     });
+
+    it("should handle Row with no children (empty Row tag)", async () => {
+      const xmlWithEmptyRow = `<?xml version="1.0" encoding="UTF-8"?>
+      <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+        <Dataset id="test">
+          <ColumnInfo>
+            <Column id="testCol" size="10" type="STRING" />
+          </ColumnInfo>
+          <Rows>
+            <Row></Row>
+            <Row>
+              <Col id="testCol">value</Col>
+            </Row>
+          </Rows>
+        </Dataset>
+      </Root>`;
+      const xapiRoot = parse(xmlWithEmptyRow);
+      const dataset = xapiRoot.datasets[0];
+      expect(dataset.rowSize()).toBe(2);
+      expect(dataset.rows[0].cols.length).toBe(0); // Empty row has no columns
+      expect(dataset.rows[1].cols.length).toBe(1);
+    });
+
+    it("should handle OrgRow with no children (empty OrgRow tag)", async () => {
+      const xmlWithEmptyOrgRow = `<?xml version="1.0" encoding="UTF-8"?>
+      <Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+        <Dataset id="test">
+          <ColumnInfo>
+            <Column id="testCol" size="10" type="STRING" />
+          </ColumnInfo>
+          <Rows>
+            <Row type="update">
+              <Col id="testCol">newValue</Col>
+              <OrgRow></OrgRow>
+            </Row>
+          </Rows>
+        </Dataset>
+      </Root>`;
+      const xapiRoot = parse(xmlWithEmptyOrgRow);
+      const dataset = xapiRoot.datasets[0];
+      const row = dataset.rows[0];
+      expect(row.orgRow).toBeDefined();
+      expect(row.orgRow?.length).toBe(0); // Empty OrgRow has no columns
+    });
   })
 });

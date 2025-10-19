@@ -21,17 +21,6 @@ export function makeParseEntities(): { entity: string; value: string; }[] {
   return entities;
 }
 
-/**
- * Creates an array of entities for writing XML, including control characters.
- * @returns An array of objects, each with an `entity` (e.g., "&#1;") and its `value` (e.g., "\x01").
- */
-export function makeWriterEntities(): { entity: string; value: string; }[] {
-  const entities: { entity: string; value: string; }[] = [];
-  for (let i = 1; i <= 32; i++) {
-    entities.push({ entity: `&#${i};`, value: String.fromCharCode(i) });
-  }
-  return entities;
-}
 
 /**
  * Converts a Base64 string to a Uint8Array.
@@ -255,4 +244,125 @@ export function _unescapeXml(str?: string): string | undefined {
 
 export function isXapiRoot(value: unknown): value is XapiRoot {
   return value instanceof XapiRoot
+}
+
+/**
+ * Escapes XML special characters in a string.
+ * @param str - The string to escape.
+ * @returns The escaped string.
+ */
+export function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+/**
+ * Encodes control characters as XML entities, excluding standard whitespace.
+ * Encodes 0x01-0x08, 0x0B-0x0C, 0x0E-0x1F but NOT 0x09 (tab), 0x0A (LF), 0x0D (CR), 0x20 (space).
+ * @param str - The string to encode.
+ * @returns The encoded string.
+ */
+export function encodeControlChars(str: string): string {
+  let result = '';
+  for (let i = 0; i < str.length; i++) {
+    const charCode = str.charCodeAt(i);
+    // Encode control characters except standard whitespace
+    if ((charCode >= 1 && charCode <= 8) ||
+        (charCode >= 11 && charCode <= 12) ||
+        (charCode >= 14 && charCode <= 31)) {
+      result += `&#${charCode};`;
+    } else {
+      result += str[i];
+    }
+  }
+  return result;
+}
+
+/**
+ * A string builder for generating formatted XML.
+ */
+export class XmlStringBuilder {
+  private lines: string[] = [];
+  private indentLevel: number = 0;
+  private readonly indentString: string = '  ';
+
+  /**
+   * Writes the XML declaration.
+   * @param version - The XML version (default: "1.0").
+   * @param encoding - The encoding (default: "UTF-8").
+   */
+  writeDeclaration(version: string = '1.0', encoding: string = 'UTF-8'): void {
+    this.lines.push(`<?xml version="${version}" encoding="${encoding}"?>`);
+  }
+
+  /**
+   * Writes a start element tag.
+   * @param name - The element name.
+   * @param attributes - Optional attributes object.
+   * @param selfClosing - Whether to create a self-closing tag.
+   */
+  writeStartElement(name: string, attributes?: Record<string, string>, selfClosing?: boolean): void {
+    const indent = this.indentString.repeat(this.indentLevel);
+    let tag = `${indent}<${name}`;
+
+    if (attributes) {
+      for (const [key, value] of Object.entries(attributes)) {
+        const encodedValue = encodeControlChars(escapeXml(value));
+        tag += ` ${key}="${encodedValue}"`;
+      }
+    }
+
+    if (selfClosing) {
+      tag += '/>';
+      this.lines.push(tag);
+    } else {
+      tag += '>';
+      this.lines.push(tag);
+      this.indentLevel++;
+    }
+  }
+
+  /**
+   * Writes an end element tag.
+   * @param name - The element name.
+   */
+  writeEndElement(name: string): void {
+    this.indentLevel--;
+    const indent = this.indentString.repeat(this.indentLevel);
+    this.lines.push(`${indent}</${name}>`);
+  }
+
+  /**
+   * Writes an element with text content.
+   * @param name - The element name.
+   * @param attributes - Optional attributes object.
+   * @param text - The text content.
+   */
+  writeElementWithText(name: string, attributes: Record<string, string> | undefined, text: string): void {
+    const indent = this.indentString.repeat(this.indentLevel);
+    let tag = `${indent}<${name}`;
+
+    if (attributes) {
+      for (const [key, value] of Object.entries(attributes)) {
+        const encodedValue = encodeControlChars(escapeXml(value));
+        tag += ` ${key}="${encodedValue}"`;
+      }
+    }
+
+    const encodedText = encodeControlChars(escapeXml(text));
+    tag += `>${encodedText}</${name}>`;
+    this.lines.push(tag);
+  }
+
+  /**
+   * Returns the generated XML string.
+   * @returns The complete XML string with line breaks.
+   */
+  toString(): string {
+    return this.lines.join('\n') + '\n';
+  }
 }

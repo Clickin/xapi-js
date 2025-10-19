@@ -40,7 +40,6 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "stax-xml": "^0.5.1",
     "txml": "^5.1.1"
   }
 }

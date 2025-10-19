@@ -1,7 +1,6 @@
-import { StaxXmlWriterSync } from "stax-xml";
 import * as txml from "txml";
 import { Col, ColumnType, InvalidXmlError, NexaVersion, Parameter, RowType, XapiOptions, XapiValueType } from "./types";
-import { _unescapeXml, convertToColumnType, convertToString, dateToString, makeWriterEntities, uint8ArrayToBase64 } from "./utils";
+import { _unescapeXml, convertToColumnType, convertToString, dateToString, uint8ArrayToBase64, XmlStringBuilder } from "./utils";
 import { Dataset, XapiRoot } from "./xapi-data";
 
 type tNodeObj = {
@@ -216,115 +215,103 @@ function parseParameters(parametersElement: tNodeObj | undefined, xapiRoot: Xapi
 }
 
 export function write(root: XapiRoot): string {
-  const writer = new StaxXmlWriterSync({
-    addEntities: makeWriterEntities(),
-    encoding: "UTF-8",
-    indentString: "  ",
-    prettyPrint: true,
+  const builder = new XmlStringBuilder();
+
+  builder.writeDeclaration("1.0", "UTF-8");
+  builder.writeStartElement("Root", {
+    xmlns: _options.xapiVersion?.xmlns || NexaVersion.xmlns,
+    version: _options.xapiVersion?.version || NexaVersion.version,
   });
-  writer.writeStartDocument("1.0", "UTF-8");
-  writer.writeStartElement("Root", {
-    attributes: {
-      xmlns: _options.xapiVersion?.xmlns || NexaVersion.xmlns,
-      version: _options.xapiVersion?.version || NexaVersion.version,
-    }
-  })
+
   if (root.parameterSize() > 0) {
-    writeParameters(writer, root.iterParameters());
+    writeParameters(builder, root.iterParameters());
   }
   if (root.datasetSize() > 0) {
-    writer.writeStartElement("Datasets");
+    builder.writeStartElement("Datasets");
     for (const dataset of root.iterDatasets()) {
-      writeDataset(writer, dataset);
+      writeDataset(builder, dataset);
     }
-    writer.writeEndElement(); // </Datasets>
+    builder.writeEndElement("Datasets");
   }
-  writer.writeEndElement();
-  return writer.getXmlString();
+  builder.writeEndElement("Root");
+  return builder.toString();
 }
-function writeParameters(writer: StaxXmlWriterSync, iterator: IterableIterator<Parameter>): void {
+function writeParameters(builder: XmlStringBuilder, iterator: IterableIterator<Parameter>): void {
   if (iterator) {
-    writer.writeStartElement("Parameters");
+    builder.writeStartElement("Parameters");
     for (const parameter of iterator) {
-      writer.writeStartElement("Parameter", { attributes: { id: parameter.id } })
+      const attrs: Record<string, string> = { id: parameter.id };
+
       if (parameter.type !== undefined) {
-        writer.writeAttribute("type", parameter.type);
+        attrs.type = parameter.type;
       }
+
       if (parameter.value !== undefined) {
         if (typeof parameter.value === "string") {
-          writer.writeAttribute("value", parameter.value);
+          attrs.value = parameter.value;
         } else if (parameter.value instanceof Date) {
-          writer.writeAttribute("value", dateToString(parameter.value, parameter.type as Extract<ColumnType, "DATE" | "DATETIME" | "TIME">));
+          attrs.value = dateToString(parameter.value, parameter.type as Extract<ColumnType, "DATE" | "DATETIME" | "TIME">);
         } else if (parameter.value instanceof Uint8Array) {
-          writer.writeAttribute("value", uint8ArrayToBase64(parameter.value));
+          attrs.value = uint8ArrayToBase64(parameter.value);
         } else {
-          writer.writeAttribute("value", String(parameter.value));
+          attrs.value = String(parameter.value);
         }
       }
-      writer.writeEndElement();
+
+      builder.writeStartElement("Parameter", attrs, true); // self-closing
     }
-    writer.writeEndElement();
+    builder.writeEndElement("Parameters");
   }
 }
-function writeDataset(writer: StaxXmlWriterSync, dataset: Dataset): void {
-  writer.writeStartElement("Dataset", { attributes: { id: dataset.id } });
+function writeDataset(builder: XmlStringBuilder, dataset: Dataset): void {
+  builder.writeStartElement("Dataset", { id: dataset.id });
   if (dataset.constColumnSize() > 0 || dataset.columnSize() > 0) {
-    writer.writeStartElement("ColumnInfo");
+    builder.writeStartElement("ColumnInfo");
     for (const constCol of dataset.iterConstColumns()) {
-      writer.writeStartElement("ConstColumn", {
-        attributes: {
-          id: constCol.id,
-          size: String(constCol.size),
-          type: constCol.type,
-          value: constCol.value !== undefined ? String(constCol.value) : ""
-        },
-        selfClosing: true
-      });
+      builder.writeStartElement("ConstColumn", {
+        id: constCol.id,
+        size: String(constCol.size),
+        type: constCol.type,
+        value: constCol.value !== undefined ? String(constCol.value) : ""
+      }, true); // self-closing
     }
     for (const col of dataset.iterColumns()) {
-      writer.writeStartElement("Column", {
-        attributes: {
-          id: col.id,
-          size: String(col.size),
-          type: col.type
-        },
-        selfClosing: true
-      });
+      builder.writeStartElement("Column", {
+        id: col.id,
+        size: String(col.size),
+        type: col.type
+      }, true); // self-closing
     }
-    writer.writeEndElement(); // </ColumnInfo>
+    builder.writeEndElement("ColumnInfo");
   }
-  writer.writeStartElement("Rows");
+  builder.writeStartElement("Rows");
   for (const row of dataset.iterRows()) {
     if (row.type) {
-      writer.writeStartElement("Row", { attributes: { type: row.type } });
-    }
-    else {
-      writer.writeStartElement("Row"); // no type
+      builder.writeStartElement("Row", { type: row.type });
+    } else {
+      builder.writeStartElement("Row");
     }
     for (const col of row.cols) {
-      writeColumn(writer, dataset, col);
+      writeColumn(builder, dataset, col);
     }
     if (row.orgRow && row.orgRow.length > 0) {
-      writer.writeStartElement("OrgRow");
+      builder.writeStartElement("OrgRow");
       for (const orgCol of row.orgRow) {
-        writeColumn(writer, dataset, orgCol);
+        writeColumn(builder, dataset, orgCol);
       }
-      writer.writeEndElement(); // </OrgRow>
+      builder.writeEndElement("OrgRow");
     }
-    writer.writeEndElement(); // </Row>
+    builder.writeEndElement("Row");
   }
-  writer.writeEndElement(); // </Rows>
-  writer.writeEndElement(); // </Dataset>
+  builder.writeEndElement("Rows");
+  builder.writeEndElement("Dataset");
 }
-function writeColumn(writer: StaxXmlWriterSync, dataset: Dataset, col: Col): void {
+function writeColumn(builder: XmlStringBuilder, dataset: Dataset, col: Col): void {
   if (col.value !== undefined && col.value !== null) {
     const colInfo = dataset.getColumnInfo(col.id);
-    writer.writeStartElement("Col", { attributes: { id: col.id } });
-    writer.writeCharacters(convertToString(col.value, colInfo!!.type));
-    writer.writeEndElement();
-  }
-  else {
+    builder.writeElementWithText("Col", { id: col.id }, convertToString(col.value, colInfo!!.type));
+  } else {
     // If value is undefined or null, we still write the Col element with an empty value
-    writer.writeStartElement("Col", { attributes: { id: col.id }, selfClosing: true });
+    builder.writeStartElement("Col", { id: col.id }, true); // self-closing
   }
 }

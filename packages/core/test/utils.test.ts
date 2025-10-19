@@ -8,12 +8,14 @@ import {
   convertToColumnType,
   convertToString,
   dateToString,
+  encodeControlChars,
+  escapeXml,
   isXapiRoot,
   makeParseEntities,
-  makeWriterEntities,
   stringToDate,
   stringToReadableStream,
-  uint8ArrayToBase64
+  uint8ArrayToBase64,
+  XmlStringBuilder
 } from "../src/utils";
 
 describe("Utils Tests", () => {
@@ -27,15 +29,6 @@ describe("Utils Tests", () => {
     });
   });
 
-  describe("makeWriterEntities", () => {
-    it("should create entities for writing with correct format", () => {
-      const entities = makeWriterEntities();
-      expect(entities).toBeDefined();
-      expect(entities.length).toBe(32);
-      expect(entities[0]).toEqual({ entity: "&#1;", value: String.fromCharCode(1) });
-      expect(entities[31]).toEqual({ entity: "&#32;", value: String.fromCharCode(32) });
-    });
-  });
 
   describe("base64ToUint8Array", () => {
     it("should convert base64 string to Uint8Array", () => {
@@ -335,4 +328,187 @@ describe("Utils Tests", () => {
       expect(result).toBe(false)
     })
   })
+
+  describe("escapeXml", () => {
+    it("should escape XML special characters", () => {
+      expect(escapeXml("&")).toBe("&amp;");
+      expect(escapeXml("<")).toBe("&lt;");
+      expect(escapeXml(">")).toBe("&gt;");
+      expect(escapeXml('"')).toBe("&quot;");
+      expect(escapeXml("'")).toBe("&apos;");
+    });
+
+    it("should escape multiple special characters", () => {
+      expect(escapeXml("<div class=\"test\">Hello & goodbye</div>")).toBe(
+        "&lt;div class=&quot;test&quot;&gt;Hello &amp; goodbye&lt;/div&gt;"
+      );
+    });
+
+    it("should handle strings with no special characters", () => {
+      expect(escapeXml("Hello World")).toBe("Hello World");
+    });
+
+    it("should handle empty string", () => {
+      expect(escapeXml("")).toBe("");
+    });
+  });
+
+  describe("encodeControlChars", () => {
+    it("should encode control characters except whitespace", () => {
+      const input = String.fromCharCode(1) + "test" + String.fromCharCode(5);
+      const expected = "&#1;test&#5;";
+      expect(encodeControlChars(input)).toBe(expected);
+    });
+
+    it("should NOT encode space character (0x20)", () => {
+      const input = "hello world";
+      const expected = "hello world";
+      expect(encodeControlChars(input)).toBe(expected);
+    });
+
+    it("should NOT encode tab and newline characters", () => {
+      const input = "line1\tline2\nline3\rline4";
+      const expected = "line1\tline2\nline3\rline4";
+      expect(encodeControlChars(input)).toBe(expected);
+    });
+
+    it("should encode non-whitespace control characters", () => {
+      // Test 0x01-0x08 range
+      const input1 = String.fromCharCode(1) + String.fromCharCode(8);
+      expect(encodeControlChars(input1)).toBe("&#1;&#8;");
+
+      // Test 0x0B-0x0C range (excluding 0x09, 0x0A, 0x0D)
+      const input2 = String.fromCharCode(11) + String.fromCharCode(12);
+      expect(encodeControlChars(input2)).toBe("&#11;&#12;");
+
+      // Test 0x0E-0x1F range
+      const input3 = String.fromCharCode(14) + String.fromCharCode(31);
+      expect(encodeControlChars(input3)).toBe("&#14;&#31;");
+    });
+
+    it("should not encode regular characters", () => {
+      const input = "ABCabc123";
+      const expected = "ABCabc123";
+      expect(encodeControlChars(input)).toBe(expected);
+    });
+
+    it("should handle empty string", () => {
+      expect(encodeControlChars("")).toBe("");
+    });
+  });
+
+  describe("XmlStringBuilder", () => {
+    it("should write XML declaration", () => {
+      const builder = new XmlStringBuilder();
+      builder.writeDeclaration();
+      const xml = builder.toString();
+      expect(xml).toContain('<?xml version="1.0" encoding="UTF-8"?>');
+    });
+
+    it("should write start and end elements", () => {
+      const builder = new XmlStringBuilder();
+      builder.writeStartElement("root");
+      builder.writeEndElement("root");
+      const xml = builder.toString();
+      expect(xml).toContain("<root>");
+      expect(xml).toContain("</root>");
+    });
+
+    it("should write elements with attributes", () => {
+      const builder = new XmlStringBuilder();
+      builder.writeStartElement("element", { id: "test", name: "value" });
+      builder.writeEndElement("element");
+      const xml = builder.toString();
+      expect(xml).toContain('id="test"');
+      expect(xml).toContain('name="value"');
+    });
+
+    it("should write self-closing elements", () => {
+      const builder = new XmlStringBuilder();
+      builder.writeStartElement("element", { id: "test" }, true);
+      const xml = builder.toString();
+      expect(xml).toContain('<element id="test"/>');
+    });
+
+    it("should write element with text content", () => {
+      const builder = new XmlStringBuilder();
+      builder.writeElementWithText("element", { id: "test" }, "Hello World");
+      const xml = builder.toString();
+      expect(xml).toContain('<element id="test">Hello World</element>');
+    });
+
+    it("should handle indentation correctly", () => {
+      const builder = new XmlStringBuilder();
+      builder.writeStartElement("root");
+      builder.writeStartElement("child");
+      builder.writeEndElement("child");
+      builder.writeEndElement("root");
+      const xml = builder.toString();
+      const lines = xml.split('\n');
+      expect(lines[0]).toBe("<root>");
+      expect(lines[1]).toBe("  <child>");
+      expect(lines[2]).toBe("  </child>");
+      expect(lines[3]).toBe("</root>");
+    });
+
+    it("should escape XML special characters in attributes", () => {
+      const builder = new XmlStringBuilder();
+      builder.writeStartElement("element", { value: "<test & \"value\">" }, true);
+      const xml = builder.toString();
+      expect(xml).toContain('&lt;test &amp; &quot;value&quot;&gt;');
+    });
+
+    it("should escape XML special characters in text content", () => {
+      const builder = new XmlStringBuilder();
+      builder.writeElementWithText("element", undefined, "<test & value>");
+      const xml = builder.toString();
+      expect(xml).toContain('&lt;test &amp; value&gt;');
+    });
+
+    it("should NOT encode whitespace in attributes", () => {
+      const builder = new XmlStringBuilder();
+      const value = "test\nvalue\ttab";
+      builder.writeStartElement("element", { content: value }, true);
+      const xml = builder.toString();
+      expect(xml).toContain('content="test\nvalue\ttab"');
+    });
+
+    it("should encode non-whitespace control characters in attributes", () => {
+      const builder = new XmlStringBuilder();
+      const value = "test" + String.fromCharCode(5) + "value";
+      builder.writeStartElement("element", { content: value }, true);
+      const xml = builder.toString();
+      expect(xml).toContain('&#5;');
+    });
+
+    it("should encode non-whitespace control characters in text content", () => {
+      const builder = new XmlStringBuilder();
+      const text = "line1" + String.fromCharCode(5) + "line2";
+      builder.writeElementWithText("element", undefined, text);
+      const xml = builder.toString();
+      expect(xml).toContain('&#5;');
+    });
+
+    it("should write nested structure with proper indentation", () => {
+      const builder = new XmlStringBuilder();
+      builder.writeDeclaration();
+      builder.writeStartElement("root", { version: "1.0" });
+      builder.writeStartElement("level1");
+      builder.writeStartElement("level2");
+      builder.writeElementWithText("level3", { id: "test" }, "content");
+      builder.writeEndElement("level2");
+      builder.writeEndElement("level1");
+      builder.writeEndElement("root");
+      const xml = builder.toString();
+
+      expect(xml).toContain('<?xml version="1.0" encoding="UTF-8"?>');
+      expect(xml).toContain('<root version="1.0">');
+      expect(xml).toContain('  <level1>');
+      expect(xml).toContain('    <level2>');
+      expect(xml).toContain('      <level3 id="test">content</level3>');
+      expect(xml).toContain('    </level2>');
+      expect(xml).toContain('  </level1>');
+      expect(xml).toContain('</root>');
+    });
+  });
 });
