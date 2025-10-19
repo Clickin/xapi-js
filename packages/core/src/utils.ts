@@ -235,11 +235,23 @@ export function convertToString(value: XapiValueType, type: ColumnType): string 
 const entities = makeParseEntities();
 export function _unescapeXml(str?: string): string | undefined {
   if (!str) return str; // Return empty string if input is empty
+
+  // First handle standard XML entities
+  let result = str
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&'); // &amp; must be last to avoid double-decoding
+
+  // Then handle control character entities
   const regex = new RegExp(entities.map(e => e.entity).join('|'), 'g');
-  return str.replace(regex, (match) => {
+  result = result.replace(regex, (match) => {
     const entity = entities.find(e => e.entity === match);
     return entity ? entity.value : match; // If not found, return the original match
   });
+
+  return result;
 }
 
 export function isXapiRoot(value: unknown): value is XapiRoot {
@@ -364,5 +376,311 @@ export class XmlStringBuilder {
    */
   toString(): string {
     return this.lines.join('\n') + '\n';
+  }
+}
+
+/**
+ * Parses XML string into a txml-compatible node structure.
+ * This is a lightweight parser optimized for X-API XML structure.
+ *
+ * @param xml - The XML string to parse.
+ * @returns An array of parsed nodes compatible with txml structure.
+ */
+export function parseXml(xml: string): any[] {
+  if (!xml || xml.trim() === '') {
+    return [];
+  }
+
+  const parser = new XapiXmlParser(xml);
+  return parser.parse();
+}
+
+/**
+ * A lightweight XML parser optimized for X-API structure.
+ * Compatible with txml's output format.
+ */
+class XapiXmlParser {
+  private xml: string;
+  private pos: number = 0;
+  private length: number;
+
+  constructor(xml: string) {
+    this.xml = xml;
+    this.length = xml.length;
+  }
+
+  parse(): any[] {
+    const nodes: any[] = [];
+
+    while (this.pos < this.length) {
+      this.skipWhitespace();
+
+      if (this.pos >= this.length) break;
+
+      // Skip XML declaration
+      if (this.peek(5) === '<?xml') {
+        this.skipUntil('?>');
+        this.pos += 2; // skip ?>
+        continue;
+      }
+
+      // Skip comments
+      if (this.peek(4) === '<!--') {
+        this.skipUntil('-->');
+        this.pos += 3; // skip -->
+        continue;
+      }
+
+      // Parse element
+      if (this.current() === '<') {
+        const node = this.parseElement();
+        if (node) {
+          nodes.push(node);
+        }
+      } else {
+        // Skip unexpected text at root level
+        this.pos++;
+      }
+    }
+
+    return nodes;
+  }
+
+  private parseElement(): any {
+    if (this.current() !== '<') return null;
+
+    this.pos++; // skip <
+
+    // Check for closing tag
+    if (this.current() === '/') {
+      return null; // Closing tag handled by parent
+    }
+
+    // Parse tag name
+    const tagName = this.parseTagName();
+    if (!tagName) return null;
+
+    const node: any = { tagName };
+
+    // Parse attributes
+    const attributes = this.parseAttributes();
+    if (attributes && Object.keys(attributes).length > 0) {
+      node.attributes = attributes;
+    }
+
+    this.skipWhitespace();
+
+    // Check for self-closing tag
+    if (this.peek(2) === '/>') {
+      this.pos += 2;
+      return node;
+    }
+
+    // Skip >
+    if (this.current() === '>') {
+      this.pos++;
+    }
+
+    // Parse children
+    const children: any[] = [];
+    let textContent = '';
+
+    while (this.pos < this.length) {
+      // Check for CDATA
+      if (this.peek(9) === '<![CDATA[') {
+        const cdataText = this.parseCDATA();
+        if (cdataText !== null) {
+          textContent += cdataText;
+        }
+        continue;
+      }
+
+      // Check for closing tag
+      if (this.peek(2) === '</') {
+        if (textContent) {
+          children.push(textContent);
+        }
+        this.pos += 2; // skip </
+        this.skipUntil('>');
+        this.pos++; // skip >
+        break;
+      }
+
+      // Check for child element
+      if (this.current() === '<') {
+        // Save any accumulated text before parsing child
+        if (textContent.trim()) {
+          children.push(textContent);
+          textContent = '';
+        }
+
+        const child = this.parseElement();
+        if (child) {
+          children.push(child);
+        }
+      } else {
+        // Accumulate text content
+        textContent += this.current();
+        this.pos++;
+      }
+    }
+
+    if (children.length > 0) {
+      node.children = children;
+    }
+
+    return node;
+  }
+
+  private parseTagName(): string {
+    let name = '';
+
+    while (this.pos < this.length) {
+      const ch = this.current();
+
+      if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' ||
+          ch === '>' || ch === '/') {
+        break;
+      }
+
+      name += ch;
+      this.pos++;
+    }
+
+    return name;
+  }
+
+  private parseAttributes(): Record<string, string> | undefined {
+    const attrs: Record<string, string> = {};
+
+    while (this.pos < this.length) {
+      this.skipWhitespace();
+
+      const ch = this.current();
+
+      // End of attributes
+      if (ch === '>' || ch === '/' || this.peek(2) === '/>') {
+        break;
+      }
+
+      // Parse attribute name
+      const attrName = this.parseAttributeName();
+      if (!attrName) break;
+
+      this.skipWhitespace();
+
+      // Skip =
+      if (this.current() === '=') {
+        this.pos++;
+      }
+
+      this.skipWhitespace();
+
+      // Parse attribute value
+      const attrValue = this.parseAttributeValue();
+      attrs[attrName] = attrValue;
+    }
+
+    return Object.keys(attrs).length > 0 ? attrs : undefined;
+  }
+
+  private parseAttributeName(): string {
+    let name = '';
+
+    while (this.pos < this.length) {
+      const ch = this.current();
+
+      if (ch === '=' || ch === ' ' || ch === '\t' || ch === '\n' ||
+          ch === '\r' || ch === '>' || ch === '/') {
+        break;
+      }
+
+      name += ch;
+      this.pos++;
+    }
+
+    return name;
+  }
+
+  private parseAttributeValue(): string {
+    let value = '';
+    const quote = this.current();
+
+    if (quote !== '"' && quote !== "'") {
+      // No quotes - read until whitespace or >
+      while (this.pos < this.length) {
+        const ch = this.current();
+        if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' ||
+            ch === '>' || ch === '/') {
+          break;
+        }
+        value += ch;
+        this.pos++;
+      }
+      return value;
+    }
+
+    this.pos++; // skip opening quote
+
+    while (this.pos < this.length) {
+      const ch = this.current();
+
+      if (ch === quote) {
+        this.pos++; // skip closing quote
+        break;
+      }
+
+      value += ch;
+      this.pos++;
+    }
+
+    return value;
+  }
+
+  private parseCDATA(): string | null {
+    if (this.peek(9) !== '<![CDATA[') return null;
+
+    this.pos += 9; // skip <![CDATA[
+
+    let content = '';
+
+    while (this.pos < this.length) {
+      if (this.peek(3) === ']]>') {
+        this.pos += 3; // skip ]]>
+        break;
+      }
+
+      content += this.current();
+      this.pos++;
+    }
+
+    return content;
+  }
+
+  private skipWhitespace(): void {
+    while (this.pos < this.length) {
+      const ch = this.current();
+      if (ch !== ' ' && ch !== '\t' && ch !== '\n' && ch !== '\r') {
+        break;
+      }
+      this.pos++;
+    }
+  }
+
+  private skipUntil(target: string): void {
+    while (this.pos < this.length) {
+      if (this.peek(target.length) === target) {
+        break;
+      }
+      this.pos++;
+    }
+  }
+
+  private current(): string {
+    return this.xml[this.pos];
+  }
+
+  private peek(length: number): string {
+    return this.xml.substring(this.pos, this.pos + length);
   }
 }

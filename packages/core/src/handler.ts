@@ -1,6 +1,5 @@
-import * as txml from "txml";
 import { Col, ColumnType, InvalidXmlError, NexaVersion, Parameter, RowType, XapiOptions, XapiValueType } from "./types";
-import { _unescapeXml, convertToColumnType, convertToString, dateToString, uint8ArrayToBase64, XmlStringBuilder } from "./utils";
+import { _unescapeXml, convertToColumnType, convertToString, dateToString, parseXml, uint8ArrayToBase64, XmlStringBuilder } from "./utils";
 import { Dataset, XapiRoot } from "./xapi-data";
 
 type tNodeObj = {
@@ -35,13 +34,13 @@ export function initXapi(options: XapiOptions) {
 
 
 /**
- * Parses an XML string into an XapiRoot object using txml.
+ * Parses an XML string into an XapiRoot object using custom parser.
  * @param xml - The string containing the XML data.
- * @returns A Promise that resolves to an XapiRoot object.
+ * @returns An XapiRoot object.
  */
 export function parse(xml: string): XapiRoot {
 
-  const parsedXml: tNodeObj[] = txml.parse(xml);
+  const parsedXml: tNodeObj[] = parseXml(xml);
   const xapiRoot = new XapiRoot();
 
   let rootElement: tNodeObj | undefined;
