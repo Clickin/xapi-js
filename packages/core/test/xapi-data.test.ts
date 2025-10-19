@@ -77,25 +77,25 @@ describe("XapiData Tests", () => {
       expect(root.parameters.params[0].value).toBe("value");
     });
 
-    it("should iterate parameters", () => {
+    it("should get parameters as array", () => {
       const root = new XapiRoot();
       const param1 = { id: "test1", value: "value1" };
       const param2 = { id: "test2", value: "value2" };
       root.addParameter(param1);
       root.addParameter(param2);
 
-      const parameters = Array.from(root.iterParameters());
+      const parameters = root.getParameters();
       expect(parameters).toEqual([param1, param2]);
     });
 
-    it("should iterate datasets", () => {
+    it("should get datasets as array", () => {
       const root = new XapiRoot();
       const dataset1 = new Dataset("test1");
       const dataset2 = new Dataset("test2");
       root.addDataset(dataset1);
       root.addDataset(dataset2);
 
-      const datasets = Array.from(root.iterDatasets());
+      const datasets = root.getDatasets();
       expect(datasets).toEqual([dataset1, dataset2]);
     });
   });
@@ -216,36 +216,36 @@ describe("XapiData Tests", () => {
       }).toThrow("Row index 99 out of bounds in dataset test");
     });
 
-    it("should iterate const columns", () => {
+    it("should get const columns as array", () => {
       const dataset = new Dataset("test");
       const constCol1: ConstColumn = { id: "const1", size: 10, type: "STRING", value: "test1" };
       const constCol2: ConstColumn = { id: "const2", size: 10, type: "STRING", value: "test2" };
       dataset.addConstColumn(constCol1);
       dataset.addConstColumn(constCol2);
 
-      const constColumns = Array.from(dataset.iterConstColumns());
+      const constColumns = dataset.getConstColumns();
       expect(constColumns).toEqual([constCol1, constCol2]);
     });
 
-    it("should iterate columns", () => {
+    it("should get columns as array", () => {
       const dataset = new Dataset("test");
       const col1: Column = { id: "col1", size: 10, type: "STRING" };
       const col2: Column = { id: "col2", size: 10, type: "INT" };
       dataset.addColumn(col1);
       dataset.addColumn(col2);
 
-      const columns = Array.from(dataset.iterColumns());
+      const columns = dataset.getColumns();
       expect(columns).toEqual([col1, col2]);
     });
 
-    it("should iterate rows", () => {
+    it("should get rows as array", () => {
       const dataset = new Dataset("test");
       const row1: Row = { cols: [{ id: "col1", value: "value1" }] };
       const row2: Row = { cols: [{ id: "col1", value: "value2" }] };
       dataset.addRow(row1);
       dataset.addRow(row2);
 
-      const rows = Array.from(dataset.iterRows());
+      const rows = dataset.getRows();
       expect(rows).toEqual([row1, row2]);
     });
 

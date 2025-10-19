@@ -1,6 +1,15 @@
 import { ColumnType, ColumnTypeError, XapiValueType } from "./types";
 import { XapiRoot } from "./xapi-data";
 
+/**
+ * Represents an XML node in the parsed structure.
+ */
+export type XmlNode = {
+  tagName: string;
+  attributes?: Record<string, string>;
+  children?: (XmlNode | string)[];
+};
+
 // make ReadableStream to string
 // can be async
 export function arrayBufferToString(buffer: ArrayBuffer): string {
@@ -380,13 +389,13 @@ export class XmlStringBuilder {
 }
 
 /**
- * Parses XML string into a txml-compatible node structure.
+ * Parses XML string into an XML node structure.
  * This is a lightweight parser optimized for X-API XML structure.
  *
  * @param xml - The XML string to parse.
- * @returns An array of parsed nodes compatible with txml structure.
+ * @returns An array of parsed XML nodes.
  */
-export function parseXml(xml: string): any[] {
+export function parseXml(xml: string): XmlNode[] {
   if (!xml || xml.trim() === '') {
     return [];
   }
@@ -397,7 +406,6 @@ export function parseXml(xml: string): any[] {
 
 /**
  * A lightweight XML parser optimized for X-API structure.
- * Compatible with txml's output format.
  */
 class XapiXmlParser {
   private xml: string;
@@ -409,8 +417,8 @@ class XapiXmlParser {
     this.length = xml.length;
   }
 
-  parse(): any[] {
-    const nodes: any[] = [];
+  parse(): XmlNode[] {
+    const nodes: XmlNode[] = [];
 
     while (this.pos < this.length) {
       this.skipWhitespace();
@@ -446,7 +454,7 @@ class XapiXmlParser {
     return nodes;
   }
 
-  private parseElement(): any {
+  private parseElement(): XmlNode | null {
     if (this.current() !== '<') return null;
 
     this.pos++; // skip <
@@ -460,7 +468,7 @@ class XapiXmlParser {
     const tagName = this.parseTagName();
     if (!tagName) return null;
 
-    const node: any = { tagName };
+    const node: XmlNode = { tagName };
 
     // Parse attributes
     const attributes = this.parseAttributes();
@@ -482,7 +490,7 @@ class XapiXmlParser {
     }
 
     // Parse children
-    const children: any[] = [];
+    const children: (XmlNode | string)[] = [];
     let textContent = '';
 
     while (this.pos < this.length) {

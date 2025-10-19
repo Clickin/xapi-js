@@ -92,23 +92,19 @@ export class XapiRoot {
   }
 
   /**
-   * Iterates over the parameters.
-   * @returns An IterableIterator for parameters.
+   * Returns all parameters as an array.
+   * @returns An array of parameters.
    */
-  *iterParameters(): IterableIterator<Parameter> {
-    for (const param of this.parameters.params) {
-      yield param;
-    }
+  getParameters(): Parameter[] {
+    return this.parameters.params;
   }
 
   /**
-   * Iterates over the datasets.
-   * @returns An IterableIterator for datasets.
+   * Returns all datasets as an array.
+   * @returns An array of datasets.
    */
-  *iterDatasets(): IterableIterator<Dataset> {
-    for (const dataset of this.datasets) {
-      yield dataset;
-    }
+  getDatasets(): Dataset[] {
+    return this.datasets;
   }
 }
 
@@ -261,33 +257,27 @@ export class Dataset {
   }
 
   /**
-   * Iterates over the constant column definitions.
-   * @returns An IterableIterator for constant columns.
+   * Returns all constant column definitions as an array.
+   * @returns An array of constant columns.
    */
-  *iterConstColumns(): IterableIterator<ConstColumn> {
-    for (const column of this.constColumns) {
-      yield column;
-    }
+  getConstColumns(): ConstColumn[] {
+    return this.constColumns;
   }
 
   /**
-   * Iterates over the column definitions.
-   * @returns An IterableIterator for columns.
+   * Returns all column definitions as an array.
+   * @returns An array of columns.
    */
-  *iterColumns(): IterableIterator<Column> {
-    for (const column of this.columns) {
-      yield column;
-    }
+  getColumns(): Column[] {
+    return this.columns;
   }
 
   /**
-   * Iterates over the rows in the dataset.
-   * @returns An IterableIterator for rows.
+   * Returns all rows in the dataset as an array.
+   * @returns An array of rows.
    */
-  *iterRows(): IterableIterator<Row> {
-    for (const row of this.rows) {
-      yield row;
-    }
+  getRows(): Row[] {
+    return this.rows;
   }
 
   /**
