@@ -19,15 +19,24 @@ export function arrayBufferToString(buffer: ArrayBuffer): string {
 
 
 /**
- * Creates an array of entities for parsing XML, including control characters.
- * @returns An array of objects, each with an `entity` (e.g., "&#1;") and its `value` (e.g., "\x01").
+ * Pre-defined XML entities for parsing, including control characters.
+ * Static array to avoid repeated allocation.
  */
-export function makeParseEntities(): { entity: string; value: string; }[] {
+const PARSE_ENTITIES = (() => {
   const entities: { entity: string; value: string; }[] = [];
   for (let i = 1; i <= 32; i++) {
     entities.push({ entity: `&#${i};`, value: String.fromCharCode(i) });
   }
   return entities;
+})();
+
+/**
+ * Creates an array of entities for parsing XML, including control characters.
+ * @deprecated Use PARSE_ENTITIES directly for better performance
+ * @returns An array of objects, each with an `entity` (e.g., "&#1;") and its `value` (e.g., "\x01").
+ */
+export function makeParseEntities(): { entity: string; value: string; }[] {
+  return PARSE_ENTITIES.slice();
 }
 
 
@@ -241,9 +250,27 @@ export function convertToString(value: XapiValueType, type: ColumnType): string 
   }
 }
 
-const entities = makeParseEntities();
+/**
+ * Pre-compiled regex for control character entities.
+ * Created once to avoid repeated compilation.
+ */
+const CONTROL_CHAR_ENTITY_REGEX = new RegExp(
+  PARSE_ENTITIES.map(e => e.entity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),
+  'g'
+);
+
+/**
+ * Map for fast entity lookup during decoding.
+ */
+const ENTITY_MAP = new Map<string, string>(
+  PARSE_ENTITIES.map(e => [e.entity, e.value])
+);
+
 export function _unescapeXml(str?: string): string | undefined {
-  if (!str) return str; // Return empty string if input is empty
+  if (!str) return str;
+
+  // Early exit if no entities present
+  if (str.indexOf('&') === -1) return str;
 
   // First handle standard XML entities
   let result = str
@@ -253,11 +280,9 @@ export function _unescapeXml(str?: string): string | undefined {
     .replace(/&apos;/g, "'")
     .replace(/&amp;/g, '&'); // &amp; must be last to avoid double-decoding
 
-  // Then handle control character entities
-  const regex = new RegExp(entities.map(e => e.entity).join('|'), 'g');
-  result = result.replace(regex, (match) => {
-    const entity = entities.find(e => e.entity === match);
-    return entity ? entity.value : match; // If not found, return the original match
+  // Then handle control character entities using pre-compiled regex and map
+  result = result.replace(CONTROL_CHAR_ENTITY_REGEX, (match) => {
+    return ENTITY_MAP.get(match) || match;
   });
 
   return result;
@@ -405,6 +430,20 @@ export function parseXml(xml: string): XmlNode[] {
 }
 
 /**
+ * Character codes for fast comparison
+ */
+const CHAR_SPACE = 32;      // ' '
+const CHAR_TAB = 9;         // '\t'
+const CHAR_LF = 10;         // '\n'
+const CHAR_CR = 13;         // '\r'
+const CHAR_LT = 60;         // '<'
+const CHAR_GT = 62;         // '>'
+const CHAR_SLASH = 47;      // '/'
+const CHAR_EQUALS = 61;     // '='
+const CHAR_QUOTE = 34;      // '"'
+const CHAR_APOS = 39;       // "'"
+
+/**
  * A lightweight XML parser optimized for X-API structure.
  */
 class XapiXmlParser {
@@ -426,14 +465,14 @@ class XapiXmlParser {
       if (this.pos >= this.length) break;
 
       // Skip XML declaration
-      if (this.peek(5) === '<?xml') {
+      if (this.matches('<?xml')) {
         this.skipUntil('?>');
         this.pos += 2; // skip ?>
         continue;
       }
 
       // Skip comments
-      if (this.peek(4) === '<!--') {
+      if (this.matches('<!--')) {
         this.skipUntil('-->');
         this.pos += 3; // skip -->
         continue;
@@ -468,7 +507,13 @@ class XapiXmlParser {
     const tagName = this.parseTagName();
     if (!tagName) return null;
 
-    const node: XmlNode = { tagName };
+    // Initialize all fields upfront for V8 hidden class optimization
+    // This ensures consistent object shape across all XmlNode instances
+    const node: XmlNode = {
+      tagName: tagName,
+      attributes: undefined,
+      children: undefined
+    };
 
     // Parse attributes
     const attributes = this.parseAttributes();
@@ -479,7 +524,7 @@ class XapiXmlParser {
     this.skipWhitespace();
 
     // Check for self-closing tag
-    if (this.peek(2) === '/>') {
+    if (this.matches('/>')) {
       this.pos += 2;
       return node;
     }
@@ -495,7 +540,7 @@ class XapiXmlParser {
 
     while (this.pos < this.length) {
       // Check for CDATA
-      if (this.peek(9) === '<![CDATA[') {
+      if (this.matches('<![CDATA[')) {
         const cdataText = this.parseCDATA();
         if (cdataText !== null) {
           textContent += cdataText;
@@ -504,7 +549,7 @@ class XapiXmlParser {
       }
 
       // Check for closing tag
-      if (this.peek(2) === '</') {
+      if (this.matches('</')) {
         if (textContent) {
           children.push(textContent);
         }
@@ -541,21 +586,19 @@ class XapiXmlParser {
   }
 
   private parseTagName(): string {
-    let name = '';
+    const start = this.pos;
 
     while (this.pos < this.length) {
-      const ch = this.current();
+      const code = this.currentCharCode();
 
-      if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' ||
-          ch === '>' || ch === '/') {
+      if (this.isWhitespace(code) || code === CHAR_GT || code === CHAR_SLASH) {
         break;
       }
 
-      name += ch;
       this.pos++;
     }
 
-    return name;
+    return this.xml.substring(start, this.pos);
   }
 
   private parseAttributes(): Record<string, string> | undefined {
@@ -567,7 +610,7 @@ class XapiXmlParser {
       const ch = this.current();
 
       // End of attributes
-      if (ch === '>' || ch === '/' || this.peek(2) === '/>') {
+      if (ch === '>' || ch === '/' || this.matches('/>')) {
         break;
       }
 
@@ -593,94 +636,94 @@ class XapiXmlParser {
   }
 
   private parseAttributeName(): string {
-    let name = '';
+    const start = this.pos;
 
     while (this.pos < this.length) {
-      const ch = this.current();
+      const code = this.currentCharCode();
 
-      if (ch === '=' || ch === ' ' || ch === '\t' || ch === '\n' ||
-          ch === '\r' || ch === '>' || ch === '/') {
+      if (code === CHAR_EQUALS || this.isWhitespace(code) ||
+          code === CHAR_GT || code === CHAR_SLASH) {
         break;
       }
 
-      name += ch;
       this.pos++;
     }
 
-    return name;
+    return this.xml.substring(start, this.pos);
   }
 
   private parseAttributeValue(): string {
-    let value = '';
-    const quote = this.current();
+    const quoteCode = this.currentCharCode();
 
-    if (quote !== '"' && quote !== "'") {
+    if (quoteCode !== CHAR_QUOTE && quoteCode !== CHAR_APOS) {
       // No quotes - read until whitespace or >
+      const start = this.pos;
       while (this.pos < this.length) {
-        const ch = this.current();
-        if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' ||
-            ch === '>' || ch === '/') {
+        const code = this.currentCharCode();
+        if (this.isWhitespace(code) || code === CHAR_GT || code === CHAR_SLASH) {
           break;
         }
-        value += ch;
         this.pos++;
       }
-      return value;
+      return this.xml.substring(start, this.pos);
     }
 
     this.pos++; // skip opening quote
+    const start = this.pos;
 
     while (this.pos < this.length) {
-      const ch = this.current();
+      const code = this.currentCharCode();
 
-      if (ch === quote) {
+      if (code === quoteCode) {
+        const value = this.xml.substring(start, this.pos);
         this.pos++; // skip closing quote
-        break;
+        return value;
       }
 
-      value += ch;
       this.pos++;
     }
 
-    return value;
+    return this.xml.substring(start, this.pos);
   }
 
   private parseCDATA(): string | null {
-    if (this.peek(9) !== '<![CDATA[') return null;
+    if (!this.matches('<![CDATA[')) return null;
 
     this.pos += 9; // skip <![CDATA[
 
-    let content = '';
-
-    while (this.pos < this.length) {
-      if (this.peek(3) === ']]>') {
-        this.pos += 3; // skip ]]>
-        break;
-      }
-
-      content += this.current();
-      this.pos++;
+    const endPos = this.findString(']]>');
+    if (endPos === -1) {
+      // No closing tag found, consume rest of document
+      const content = this.xml.substring(this.pos);
+      this.pos = this.length;
+      return content;
     }
 
+    const content = this.xml.substring(this.pos, endPos);
+    this.pos = endPos + 3; // skip ]]>
     return content;
   }
 
   private skipWhitespace(): void {
     while (this.pos < this.length) {
-      const ch = this.current();
-      if (ch !== ' ' && ch !== '\t' && ch !== '\n' && ch !== '\r') {
+      const code = this.currentCharCode();
+      if (code !== CHAR_SPACE && code !== CHAR_TAB && code !== CHAR_LF && code !== CHAR_CR) {
         break;
       }
       this.pos++;
     }
   }
 
+  private isWhitespace(code: number): boolean {
+    return code === CHAR_SPACE || code === CHAR_TAB || code === CHAR_LF || code === CHAR_CR;
+  }
+
   private skipUntil(target: string): void {
-    while (this.pos < this.length) {
-      if (this.peek(target.length) === target) {
-        break;
-      }
-      this.pos++;
+    const pos = this.findString(target);
+    if (pos !== -1) {
+      this.pos = pos;
+    } else {
+      this.pos = this.length; // Not found, skip to end
     }
   }
 
@@ -688,6 +731,49 @@ class XapiXmlParser {
     return this.xml[this.pos];
   }
 
+  private currentCharCode(): number {
+    return this.xml.charCodeAt(this.pos);
+  }
+
+  /**
+   * Checks if the string at the given position matches the target string.
+   * This avoids creating substring instances for comparison.
+   * @param str - The target string to match
+   * @param pos - The position to check from (default: current position)
+   */
+  private matches(str: string, pos: number = this.pos): boolean {
+    const len = str.length;
+    if (pos + len > this.length) {
+      return false;
+    }
+    for (let i = 0; i < len; i++) {
+      if (this.xml.charCodeAt(pos + i) !== str.charCodeAt(i)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Finds the position of a target string starting from the given position.
+   * @param str - The string to find
+   * @param startPos - Starting position (default: current position)
+   * @returns The position where the string is found, or -1 if not found
+   */
+  private findString(str: string, startPos: number = this.pos): number {
+    const maxPos = this.length - str.length;
+    for (let pos = startPos; pos <= maxPos; pos++) {
+      if (this.matches(str, pos)) {
+        return pos;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Only use peek() when you actually need the substring.
+   * For comparisons, use matches() instead.
+   */
   private peek(length: number): string {
     return this.xml.substring(this.pos, this.pos + length);
   }
