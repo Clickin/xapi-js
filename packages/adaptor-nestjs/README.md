@@ -1,151 +1,58 @@
-# @xapi-ts/adaptor-nestjs
+# @xapi-js/adaptor-nestjs
 
-This package provides a NestJS adaptor for X-API data.
+NestJS interceptors for raw or schema-typed X-API requests and responses.
 
 ## Installation
 
 ```bash
-# npm
-npm install @xapi-ts/adaptor-nestjs
-
-# yarn
-yarn add @xapi-ts/adaptor-nestjs
-
-# pnpm
-pnpm add @xapi-ts/adaptor-nestjs
-
-# bun
-bun add @xapi-ts/adaptor-nestjs
-
-# deno
-deno add @xapi-ts/adaptor-nestjs
+pnpm add @xapi-js/core @xapi-js/adaptor-nestjs @nestjs/common rxjs
 ```
 
-## Usage
+## Typed usage
 
-`@xapi-ts/adaptor-nestjs` provides NestJS interceptors to automatically handle X-API request deserialization and response serialization.
+```ts
+import { Body, Controller, Post, UseInterceptors } from '@nestjs/common';
+import { InferRoot, xapi } from '@xapi-js/core';
+import {
+  XapiRequestInterceptor,
+  XapiResponseInterceptor,
+} from '@xapi-js/adaptor-nestjs';
 
-### XapiRequestInterceptor
+const requestSchema = xapi.root({
+  datasets: {
+    input: xapi.dataset({ id: xapi.int() }),
+  },
+});
 
-Use `XapiRequestInterceptor` to automatically parse incoming `application/xml` requests into `XapiRoot` objects.
-
-```typescript
-// app.controller.ts
-import { Controller, Post, UseInterceptors, Body } from '@nestjs/common';
-import { XapiRoot } from '@xapi-ts/core';
-import { XapiRequestInterceptor } from '@xapi-ts/adaptor-nestjs';
+const responseSchema = xapi.root({
+  datasets: {
+    users: xapi.dataset({ id: xapi.int(), name: xapi.string() }),
+  },
+});
 
 @Controller('xapi')
-export class AppController {
-  @Post('/')
-  @UseInterceptors(XapiRequestInterceptor)
-  handleXapi(@Body() xapi: XapiRoot): XapiRoot {
-    console.log('Received XapiRoot:', xapi.parameters.get('service')?.value);
-    // Process the XapiRoot object
-    const responseXapi = new XapiRoot();
-    responseXapi.addParameter({ id: 'result', value: 'success' });
-    return responseXapi;
+export class XapiController {
+  @Post()
+  @UseInterceptors(
+    new XapiRequestInterceptor(requestSchema),
+    new XapiResponseInterceptor(responseSchema),
+  )
+  handle(
+    @Body() request: InferRoot<typeof requestSchema>,
+  ): InferRoot<typeof responseSchema> {
+    return {
+      parameters: {},
+      datasets: {
+        users: request.datasets.input.map(({ id }) => ({ id, name: `user-${id}` })),
+      },
+    };
   }
 }
 ```
 
-### XapiResponseInterceptor
-
-Use `XapiResponseInterceptor` to automatically serialize `XapiRoot` objects returned from your NestJS controllers into `application/xml` responses.
-
-```typescript
-// app.controller.ts
-import { Controller, Post, UseInterceptors, Body } from '@nestjs/common';
-import { XapiRoot } from '@xapi-ts/core
-import { XapiRequestInterceptor, XapiResponseInterceptor } from '@xapi-ts/adaptor-nestjs';
-
-@Controller('xapi')
-export class AppController {
-  @Post('/')
-  @UseInterceptors(XapiRequestInterceptor, XapiResponseInterceptor)
-  handleXapi(@Body() xapi: XapiRoot): XapiRoot {
-    console.log('Received XapiRoot:', xapi.parameters.get('service')?.value);
-    // Process the XapiRoot object
-    const responseXapi = new XapiRoot();
-    responseXapi.addParameter({ id: 'result', value: 'success' });
-    return responseXapi;
-  }
-}
-```
+Without a schema, both interceptors retain their original `XapiRoot` behavior.
 
 ---
 
-# @xapi-ts/adaptor-nestjs
-
-이 패키지는 X-API 데이터를 위한 NestJS 어댑터를 제공합니다.
-
-## 설치
-
-```bash
-# npm
-npm install @xapi-ts/adaptor-nestjs
-
-# yarn
-yarn add @xapi-ts/adaptor-nestjs
-
-# pnpm
-pnpm add @xapi-ts/adaptor-nestjs
-
-# bun
-bun add @xapi-ts/adaptor-nestjs
-
-# deno
-deno add @xapi-ts/adaptor-nestjs
-```
-
-## 사용법
-
-`@xapi-ts/adaptor-nestjs`는 X-API 요청 역직렬화 및 응답 직렬화를 자동으로 처리하는 NestJS 인터셉터를 제공합니다.
-
-### XapiRequestInterceptor
-
-들어오는 `application/xml` 요청을 `XapiRoot` 객체로 자동 구문 분석하려면 `XapiRequestInterceptor`를 사용하십시오.
-
-```typescript
-// app.controller.ts
-import { Controller, Post, UseInterceptors, Body } from '@nestjs/common';
-import { XapiRoot } from '@xapi-ts/core';
-import { XapiRequestInterceptor } from '@xapi-ts/adaptor-nestjs';
-
-@Controller('xapi')
-export class AppController {
-  @Post('/')
-  @UseInterceptors(XapiRequestInterceptor)
-  handleXapi(@Body() xapi: XapiRoot): XapiRoot {
-    console.log('Received XapiRoot:', xapi.parameters.get('service')?.value);
-    // XapiRoot 객체 처리
-    const responseXapi = new XapiRoot();
-    responseXapi.addParameter({ id: 'result', value: 'success' });
-    return responseXapi;
-  }
-}
-```
-
-### XapiResponseInterceptor
-
-NestJS 컨트롤러에서 반환된 `XapiRoot` 객체를 `application/xml` 응답으로 자동 직렬화하려면 `XapiResponseInterceptor`를 사용하십시오.
-
-```typescript
-// app.controller.ts
-import { Controller, Post, UseInterceptors, Body } from '@nestjs/common';
-import { XapiRoot } from '@xapi-ts/core
-import { XapiRequestInterceptor, XapiResponseInterceptor } from '@xapi-ts/adaptor-nestjs';
-
-@Controller('xapi')
-export class AppController {
-  @Post('/')
-  @UseInterceptors(XapiRequestInterceptor, XapiResponseInterceptor)
-  handleXapi(@Body() xapi: XapiRoot): XapiRoot {
-    console.log('Received XapiRoot:', xapi.parameters.get('service')?.value);
-    // XapiRoot 객체 처리
-    const responseXapi = new XapiRoot();
-    responseXapi.addParameter({ id: 'result', value: 'success' });
-    return responseXapi;
-  }
-}
-```
+schema를 interceptor에 전달하면 컨트롤러 body와 반환값을 Dataset 기반
+`XapiRoot` 대신 타입이 추론된 plain object로 사용할 수 있습니다.

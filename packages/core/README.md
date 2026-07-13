@@ -1,221 +1,84 @@
-# @xapi-ts/core
+# @xapi-js/core
 
-This package provides core utilities and types for working with X-API data.
+Core XML, Dataset, and typed-schema support for Tobesoft X-API.
 
 ## Installation
 
 ```bash
-# npm
-npm install @xapi-ts/core
-
-# yarn
-yarn add @xapi-ts/core
-
-# pnpm
-pnpm add @xapi-ts/core
-
-# bun
-bun add @xapi-ts/core
-
-# deno
-deno add @xapi-ts/core
+pnpm add @xapi-js/core
 ```
 
-## Usage
+## Typed schemas
 
-`@xapi-ts/core` provides the fundamental classes and functions for working with X-API data.
+A Dataset schema maps to `T[]`; a Root schema maps to an object containing
+`parameters` and named `datasets`. Column methods preserve X-API wire types,
+even when multiple wire types map to JavaScript `number`.
 
-### Typed schemas
+```ts
+import { InferRoot, RequestOf, ResponseOf, xapi } from '@xapi-js/core';
 
-```typescript
-import { InferRoot, xapi } from '@xapi-js/core';
-
-const schema = xapi.root({
-  parameters: { ErrorCode: xapi.int() },
+const request = xapi.root({
+  parameters: {
+    service: xapi.string(),
+  },
   datasets: {
-    users: xapi.dataset({
+    input: xapi.dataset({
       id: xapi.int(),
-      balance: xapi.bigdecimal(),
-      name: xapi.string({ size: 100 }),
-      photo: xapi.blob({ optional: true }),
+      amount: xapi.bigdecimal(),
+      ratio: xapi.decimal(),
+      score: xapi.float(),
+      note: xapi.string({ optional: true }),
     }),
   },
 });
 
-type Payload = InferRoot<typeof schema>;
+type RequestPayload = InferRoot<typeof request>;
+
+const operation = xapi.operation({
+  request,
+  response: xapi.root({
+    parameters: { ErrorCode: xapi.int(), ErrorMsg: xapi.string() },
+    datasets: {
+      output: xapi.dataset({
+        id: xapi.int(),
+        amount: xapi.bigdecimal(),
+      }),
+    },
+  }),
+});
+
+type OperationRequest = RequestOf<typeof operation>;
+type OperationResponse = ResponseOf<typeof operation>;
 ```
 
-### Parsing X-API XML
+`encodeRoot(schema, value)` converts the inferred plain object to `XapiRoot`.
+`decodeRoot(schema, root)` converts it back. Adapters call these functions
+automatically when supplied with a schema or operation.
 
-You can parse an X-API XML string into an `XapiRoot` object:
+## Low-level API
 
-```typescript
-import { parse, XapiRoot } from '@xapi-ts/core';
+The original Dataset API remains available when dynamic column access is needed.
 
-const xmlString = `<?xml version="1.0" encoding="UTF-8"?>
-<Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
-  <Parameters>
-    <Parameter id="service">stock</Parameter>
-    <Parameter id="method">search</Parameter>
-  </Parameters>
-</Root>`;
+```ts
+import { Dataset, parse, write, XapiRoot } from '@xapi-js/core';
 
-const xapi = parse(xmlString);
-console.log('Service:', xapi.getParameter('service')?.value);
-console.log('Method:', xapi.getParameter('method')?.value);
-```
+const root = new XapiRoot();
+const users = new Dataset('users');
+users.addColumn({ id: 'id', type: 'INT', size: 10 });
+users.addColumn({ id: 'name', type: 'STRING', size: 100 });
 
-### Creating and Manipulating XapiRoot
+const row = users.newRow();
+users.setColumn(row, 'id', 1);
+users.setColumn(row, 'name', 'Alice');
+root.addDataset(users);
 
-You can create an `XapiRoot` object and add parameters and datasets programmatically:
-
-```typescript
-import { XapiRoot, Dataset } from '@xapi-ts/core';
-
-const xapi = new XapiRoot();
-
-// Add parameters
-xapi.addParameter({ id: 'resultCode', value: '0' });
-xapi.addParameter({ id: 'resultMsg', value: 'SUCCESS' });
-
-// Create and add a dataset
-const usersDataset = new Dataset('users');
-usersDataset.addColumn({ id: 'id', type: 'INT' });
-usersDataset.addColumn({ id: 'name', type: 'STRING' });
-
-usersDataset.newRow();
-usersDataset.setColumn(0, 'id', 1);
-usersDataset.setColumn(0, 'name', 'Alice');
-
-usersDataset.newRow();
-usersDataset.setColumn(1, 'id', 2);
-usersDataset.setColumn(1, 'name', 'Bob');
-
-xapi.addDataset(usersDataset);
-
-console.log('XapiRoot created:', xapi);
-```
-
-### Serializing XapiRoot to XML
-
-You can serialize an `XapiRoot` object back into an X-API XML string:
-
-```typescript
-import { write, XapiRoot, Dataset } from '@xapi-ts/core';
-
-const xapi = new XapiRoot();
-xapi.addParameter({ id: 'status', value: 'OK' });
-
-const productsDataset = new Dataset('products');
-productsDataset.addColumn({ id: 'productId', type: 'STRING' });
-productsDataset.addColumn({ id: 'price', type: 'INT' });
-productsDataset.newRow();
-productsDataset.setColumn(0, 'productId', 'P001');
-productsDataset.setColumn(0, 'price', 1000);
-xapi.addDataset(productsDataset);
-
-const xmlOutput = write(xapi);
-console.log('Generated XML:\n', xmlOutput);
+const xml = write(root);
+const parsed = parse(xml);
 ```
 
 ---
 
-# @xapi-ts/core
-
-이 패키지는 X-API 데이터를 다루기 위한 핵심 유틸리티 및 타입을 제공합니다.
-
-## 설치
-
-```bash
-# npm
-npm install @xapi-ts/core
-
-# yarn
-yarn add @xapi-ts/core
-
-# pnpm
-pnpm add @xapi-ts/core
-
-# bun
-bun add @xapi-ts/core
-
-# deno
-deno add @xapi-ts/core
-```
-
-## 사용법
-
-`@xapi-ts/core`는 X-API 데이터를 다루기 위한 기본적인 클래스와 함수를 제공합니다.
-
-### X-API XML 파싱
-
-X-API XML 문자열을 `XapiRoot` 객체로 파싱할 수 있습니다:
-
-```typescript
-import { parse, XapiRoot } from '@xapi-ts/core';
-
-const xmlString = `<?xml version="1.0" encoding="UTF-8"?>
-<Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
-  <Parameters>
-    <Parameter id="service">stock</Parameter>
-    <Parameter id="method">search</Parameter>
-  </Parameters>
-</Root>`;
-
-const xapi = parse(xmlString);
-console.log('서비스:', xapi.getParameter('service')?.value);
-console.log('메서드:', xapi.getParameter('method')?.value);
-```
-
-### XapiRoot 생성 및 조작
-
-`XapiRoot` 객체를 생성하고 매개변수 및 데이터셋을 프로그래밍 방식으로 추가할 수 있습니다:
-
-```typescript
-import { XapiRoot, Dataset } from '@xapi-ts/core';
-
-const xapi = new XapiRoot();
-
-// 매개변수 추가
-xapi.addParameter({ id: 'resultCode', value: '0' });
-xapi.addParameter({ id: 'resultMsg', value: 'SUCCESS' });
-
-// 데이터셋 생성 및 추가
-const usersDataset = new Dataset('users');
-usersDataset.addColumn({ id: 'id', type: 'INT' });
-usersDataset.addColumn({ id: 'name', type: 'STRING' });
-let rowIdx: number;
-rowIdx = usersDataset.newRow();
-usersDataset.setColumn(rowIdx, 'id', 1);
-usersDataset.setColumn(rowIdx, 'name', 'Alice');
-
-rowIdx = usersDataset.newRow();
-usersDataset.setColumn(rowIdx, 'id', 2);
-usersDataset.setColumn(rowIdx, 'name', 'Bob');
-
-xapi.addDataset(usersDataset);
-
-console.log('XapiRoot 생성됨:', xapi);
-```
-
-### XapiRoot를 XML로 직렬화
-
-`XapiRoot` 객체를 X-API XML 문자열로 다시 직렬화할 수 있습니다:
-
-```typescript
-import { write, XapiRoot, Dataset } from '@xapi-ts/core';
-
-const xapi = new XapiRoot();
-xapi.addParameter({ id: 'status', value: 'OK' });
-
-const productsDataset = new Dataset('products');
-productsDataset.addColumn({ id: 'productId', type: 'STRING' });
-productsDataset.addColumn({ id: 'price', type: 'INT' });
-productsDataset.newRow();
-productsDataset.setColumn(0, 'productId', 'P001');
-productsDataset.setColumn(0, 'price', 1000);
-xapi.addDataset(productsDataset);
-
-const xmlOutput = write(xapi);
-console.log('생성된 XML:\n', xmlOutput);
-```
+Dataset schema는 `T[]`로, Root schema는 `parameters`와 여러 `datasets`를
+가진 plain object로 추론됩니다. `INT`, `FLOAT`, `DECIMAL`,
+`BIGDECIMAL`처럼 JavaScript 타입은 같지만 X-API 전송 타입이 다른 컬럼도
+schema에서 명시적으로 구분됩니다.

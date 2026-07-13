@@ -1,119 +1,55 @@
-# @xapi-ts/adaptor-fetch
+# @xapi-js/adaptor-fetch
 
-This package provides a Fetch API adaptor for X-API data.
+Fetch API client for raw or schema-typed X-API requests.
 
 ## Installation
 
 ```bash
-# npm
-npm install @xapi-ts/adaptor-fetch
-
-# yarn
-yarn add @xapi-ts/adaptor-fetch
-
-# pnpm
-pnpm add @xapi-ts/adaptor-fetch
-
-# bun
-bun add @xapi-ts/adaptor-fetch
-
-# deno
-deno add @xapi-ts/adaptor-fetch
+pnpm add @xapi-js/core @xapi-js/adaptor-fetch
 ```
 
-## Usage
+## Typed usage
 
-Here's how to use `@xapi-ts/adaptor-fetch` to send and receive X-API data:
+```ts
+import { xapi } from '@xapi-js/core';
+import { xapiFetch } from '@xapi-js/adaptor-fetch';
 
-```typescript
-import { xapiFetch } from '@xapi-ts/adaptor-fetch';
-import { XapiRoot } from '@xapi-ts/core';
+const search = xapi.operation({
+  request: xapi.root({
+    datasets: {
+      input: xapi.dataset({
+        id: xapi.int(),
+        minimumBalance: xapi.bigdecimal(),
+      }),
+    },
+  }),
+  response: xapi.root({
+    parameters: { ErrorCode: xapi.int() },
+    datasets: {
+      users: xapi.dataset({
+        id: xapi.int(),
+        name: xapi.string(),
+        balance: xapi.bigdecimal(),
+      }),
+    },
+  }),
+});
 
-async function sendXapiRequest() {
-  const requestXapi = new XapiRoot();
-  requestXapi.addParameter({ id: 'service', value: 'stock' });
-  requestXapi.addParameter({ id: 'method', value: 'search' });
+const response = await xapiFetch('/api/users', search, {
+  parameters: {},
+  datasets: {
+    input: [{ id: 1, minimumBalance: 100.5 }],
+  },
+});
 
-  try {
-    const responseXapi = await xapiFetch('http://localhost:3000/api/xapi', requestXapi);
-
-    // Access parameters from the response
-    const result = responseXapi.parameters.get('result')?.value;
-    console.log(`Result: ${result}`);
-
-    // Access datasets from the response
-    const stockDataset = responseXapi.getDataset('stockList');
-    if (stockDataset) {
-      console.log('Stock List:');
-      stockDataset.rows.forEach(row => {
-        console.log(`  Code: ${row.get('stockCode')}, Price: ${row.get('currentPrice')}`);
-      });
-    }
-  } catch (error) {
-    console.error('Error sending X-API request:', error);
-  }
-}
-
-sendXapiRequest();
+response.datasets.users[0].name; // string
 ```
+
+The operation controls both XML column metadata and the inferred request and
+response types. For dynamic payloads, the existing
+`xapiFetch(url, xapiRoot, options)` overload remains available.
 
 ---
 
-# @xapi-ts/adaptor-fetch
-
-이 패키지는 X-API 데이터를 위한 Fetch API 어댑터를 제공합니다.
-
-## 설치
-
-```bash
-# npm
-npm install @xapi-ts/adaptor-fetch
-
-# yarn
-yarn add @xapi-ts/adaptor-fetch
-
-# pnpm
-pnpm add @xapi-ts/adaptor-fetch
-
-# bun
-bun add @xapi-ts/adaptor-fetch
-
-# deno
-deno add @xapi-ts/adaptor-fetch
-```
-
-## 사용법
-
-다음은 `@xapi-ts/adaptor-fetch`를 사용하여 X-API 데이터를 송수신하는 방법입니다:
-
-```typescript
-import { xapiFetch } from '@xapi-ts/adaptor-fetch';
-import { XapiRoot } from '@xapi-ts/core';
-
-async function sendXapiRequest() {
-  const requestXapi = new XapiRoot();
-  requestXapi.addParameter({ id: 'service', value: 'stock' });
-  requestXapi.addParameter({ id: 'method', value: 'search' });
-
-  try {
-    const responseXapi = await xapiFetch('http://localhost:3000/api/xapi', requestXapi);
-
-    // 응답에서 파라미터 접근
-    const result = responseXapi.parameters.get('result')?.value;
-    console.log(`결과: ${result}`);
-
-    // 응답에서 데이터셋 접근
-    const stockDataset = responseXapi.getDataset('stockList');
-    if (stockDataset) {
-      console.log('주식 목록:');
-      stockDataset.rows.forEach(row => {
-        console.log(`  코드: ${row.get('stockCode')}, 가격: ${row.get('currentPrice')}`);
-      });
-    }
-  } catch (error) {
-    console.error('X-API 요청 전송 오류:', error);
-  }
-}
-
-sendXapiRequest();
-```
+operation schema를 전달하면 요청과 응답이 plain object로 자동 변환되며,
+Dataset별 변환기나 `XapiRoot` 타입 단언이 필요하지 않습니다.
