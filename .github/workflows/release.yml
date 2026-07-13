@@ -68,8 +68,8 @@ jobs:
 
       - name: Publish packages with npm Trusted Publishing
         run: |
-          npm publish release/xapi-js-core-*.tgz --access public
-          for package in release/xapi-js-adaptor-*.tgz; do
+          npm publish ./release/xapi-js-core-*.tgz --access public
+          for package in ./release/xapi-js-adaptor-*.tgz; do
             npm publish "$package" --access public
           done
 
