@@ -55,7 +55,22 @@ export function parse(xml: string): XapiRoot {
 
       if (tagName === 'Parameters') {
         parseParameters(child, xapiRoot);
+      } else if (tagName === 'Datasets') {
+        for (const datasetElement of child.children ?? []) {
+          if (typeof datasetElement !== 'string' && datasetElement.tagName === 'Dataset') {
+            parseDataset(datasetElement, xapiRoot);
+          }
+        }
       } else if (tagName === 'Dataset') {
+        parseDataset(child, xapiRoot);
+      }
+    }
+  }
+
+  return xapiRoot;
+}
+
+function parseDataset(child: XmlNode, xapiRoot: XapiRoot): void {
         if (!child.attributes || !child.attributes.id) {
           throw new InvalidXmlError("Dataset element must have an 'id' attribute");
         }
@@ -83,11 +98,6 @@ export function parse(xml: string): XapiRoot {
 
         parseColumnInfo(columnInfoElement, dataset);
         parseRows(rowsElement, dataset);
-      }
-    }
-  }
-
-  return xapiRoot;
 }
 
 function parseValue(value?: string, type: ColumnType = "STRING"): XapiValueType {
@@ -207,7 +217,7 @@ function parseParameters(parametersElement: XmlNode | string | undefined, xapiRo
       const attrs = p.attributes;
       const id = attrs?.id!!;
       const type = (attrs?.type as ColumnType) || "STRING";
-      const value = p.children?.[0] as string;
+      const value = (p.children?.[0] as string | undefined) ?? attrs?.value;
       xapiRoot.addParameter({
         id,
         type,

@@ -25,6 +25,26 @@ deno add @xapi-ts/core
 
 `@xapi-ts/core` provides the fundamental classes and functions for working with X-API data.
 
+### Typed schemas
+
+```typescript
+import { InferRoot, xapi } from '@xapi-js/core';
+
+const schema = xapi.root({
+  parameters: { ErrorCode: xapi.int() },
+  datasets: {
+    users: xapi.dataset({
+      id: xapi.int(),
+      balance: xapi.bigdecimal(),
+      name: xapi.string({ size: 100 }),
+      photo: xapi.blob({ optional: true }),
+    }),
+  },
+});
+
+type Payload = InferRoot<typeof schema>;
+```
+
 ### Parsing X-API XML
 
 You can parse an X-API XML string into an `XapiRoot` object:

@@ -1,4 +1,4 @@
-import { XapiRoot } from '@xapi-js/core';
+import { encodeRoot, write, XapiRoot, xapi } from '@xapi-js/core';
 import { NextFunction } from 'express';
 import { createRequest, createResponse } from 'node-mocks-http';
 import { describe, expect, it, vi } from 'vitest';
@@ -99,5 +99,27 @@ describe('xapiExpress middleware', () => {
     await middleware(mockReq, mockRes, next);
 
     expect(next).toHaveBeenCalledWith(expect.any(Error));
+  });
+
+  it('should convert typed schema operations', async () => {
+    const operation = xapi.operation({
+      request: xapi.root({ datasets: { input: xapi.dataset({ id: xapi.int() }) } }),
+      response: xapi.root({ datasets: { output: xapi.dataset({ name: xapi.string() }) } }),
+    });
+    const requestBody = write(encodeRoot(operation.request, {
+      parameters: {},
+      datasets: { input: [{ id: 1 }] },
+    }));
+    const request = createRequest({ body: requestBody, headers: { 'content-type': 'application/xml' } });
+    const response = createResponse();
+    const handler = vi.fn(async ({ datasets }) => ({
+      parameters: {},
+      datasets: { output: [{ name: `user-${datasets.input[0].id}` }] },
+    }));
+
+    await xapiExpress(operation, handler)(request, response, next);
+
+    expect(handler).toHaveBeenCalled();
+    expect(response._getData()).toContain('<Col id="name">user-1</Col>');
   });
 });

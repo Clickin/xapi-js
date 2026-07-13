@@ -1,5 +1,5 @@
 import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from "@nestjs/common";
-import { parse } from "@xapi-js/core";
+import { decodeRoot, parse, XapiRootSchema } from "@xapi-js/core";
 import { Observable } from "rxjs";
 
 /**
@@ -10,6 +10,8 @@ import { Observable } from "rxjs";
 @Injectable()
 export class XapiRequestInterceptor implements NestInterceptor {
   private readonly logger: Logger = new Logger(XapiRequestInterceptor.name);
+
+  constructor(private readonly schema?: XapiRootSchema) {}
 
   /**
    * Intercepts the incoming request to parse XML body.
@@ -23,8 +25,9 @@ export class XapiRequestInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest();
     this.logger.debug(`XapiRequestInterceptor Intercepting request: ${request.method} ${request.url}`);
     // Deserialize XML input to XapiRoot object
-    if (request.headers['content-type'] === 'application/xml' && request.body) {
-      request.body = await parse(request.body);
+    if (request.headers['content-type']?.startsWith('application/xml') && request.body) {
+      const root = parse(request.body);
+      request.body = this.schema ? decodeRoot(this.schema, root) : root;
     }
     return next.handle()
   }

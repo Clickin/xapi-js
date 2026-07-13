@@ -5,4 +5,5 @@
 export { initXapi, parse, write } from './handler';
 export * from './types';
 export * from './utils';
+export * from './schema';
 export { Dataset, XapiRoot } from './xapi-data';

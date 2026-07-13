@@ -4,7 +4,8 @@
     "module": "esnext",
     "strict": true,
     "esModuleInterop": true,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
+    "experimentalDecorators": true,
     "skipLibCheck": true,
     "noUnusedLocals": true,
     "noImplicitAny": true,
@@ -12,5 +13,7 @@
     "noEmit": true,
     "resolveJsonModule": true,
     "types": ["vitest/globals"]
-  }
+  },
+  "include": ["packages/*/src/**/*.ts"],
+  "exclude": ["packages/*/dist", "packages/*/test"]
 }

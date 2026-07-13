@@ -1,4 +1,4 @@
-import { XapiRoot } from '@xapi-js/core';
+import { XapiRoot, xapi } from '@xapi-js/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import createFetchMock from 'vitest-fetch-mock';
 import { xapiFetch } from '../src';
@@ -95,5 +95,26 @@ describe('xapiFetch', () => {
         'Custom-Header': 'CustomValue',
       }),
     }));
+  });
+
+  it('should infer and convert schema operations', async () => {
+    const operation = xapi.operation({
+      request: xapi.root({ datasets: { input: xapi.dataset({ id: xapi.int() }) } }),
+      response: xapi.root({ datasets: { output: xapi.dataset({ id: xapi.int(), amount: xapi.bigdecimal() }) } }),
+    });
+    fetchMock.mockResponseOnce(`<?xml version="1.0" encoding="UTF-8"?>
+<Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">
+  <Dataset id="output"><ColumnInfo>
+    <Column id="id" type="INT" size="10"/><Column id="amount" type="BIGDECIMAL" size="30"/>
+  </ColumnInfo><Rows><Row><Col id="id">1</Col><Col id="amount">12.5</Col></Row></Rows></Dataset>
+</Root>`);
+
+    const response = await xapiFetch('http://localhost:3000/xapi', operation, {
+      parameters: {},
+      datasets: { input: [{ id: 1 }] },
+    });
+
+    expect(response.datasets.output).toEqual([{ id: 1, amount: 12.5 }]);
+    expect(fetchMock.mock.calls[0][1]?.body).toContain('type="INT"');
   });
 });

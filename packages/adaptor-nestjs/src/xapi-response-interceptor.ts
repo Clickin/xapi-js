@@ -1,5 +1,5 @@
 import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
-import { XapiRoot, isXapiRoot, write } from '@xapi-js/core';
+import { encodeRoot, isXapiRoot, write, XapiRootSchema } from '@xapi-js/core';
 import { Observable, map } from 'rxjs';
 
 /**
@@ -8,8 +8,10 @@ import { Observable, map } from 'rxjs';
  * and whose response should be `application/xml`.
  */
 @Injectable()
-export class XapiResponseInterceptor implements NestInterceptor<XapiRoot, string> {
+export class XapiResponseInterceptor implements NestInterceptor<unknown, string> {
   private readonly logger: Logger = new Logger(XapiResponseInterceptor.name);
+
+  constructor(private readonly schema?: XapiRootSchema) {}
 
   /**
    * Intercepts the outgoing response to serialize XapiRoot to XML string.
@@ -24,10 +26,11 @@ export class XapiResponseInterceptor implements NestInterceptor<XapiRoot, string
     this.logger.debug(`XapiResponseInterceptor Intercepting response`);
     return next.handle().pipe(
       map((value) => {
-        if (isXapiRoot(value)) {
+        const root = this.schema ? encodeRoot(this.schema, value as never) : value;
+        if (isXapiRoot(root)) {
           try {
             // Serialize XapiRoot output to XML string
-            const xmlOutput = write(value);
+            const xmlOutput = write(root);
             return xmlOutput!!;
           } catch (error) {
             this.logger.error(`Failed to serialize XapiRoot to XML string: ${error}`);

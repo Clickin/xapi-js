@@ -8,6 +8,7 @@ This is a monorepo for xapi-ts, a TypeScript implementation of Tobesoft's X-API 
 - `adaptor-express`: Express.js adaptor for X-API.
 - `adaptor-fetch`: Fetch API adaptor for X-API.
 - `adaptor-nestjs`: NestJS adaptor for X-API.
+- `adaptor-hono`: Hono adaptor for typed X-API server handlers.
 
 ## Installation
 
@@ -54,6 +55,7 @@ X-API 데이터를 TypeScript에서 다루기 위한 라이브러리 모음인 x
 - `adaptor-express`: Express.js X-API 어댑터.
 - `adaptor-fetch`: Fetch API X-API 어댑터.
 - `adaptor-nestjs`: NestJS X-API 어댑터.
+- `adaptor-hono`: 타입 추론을 지원하는 Hono X-API 서버 어댑터.
 
 ## 설치
 

@@ -198,10 +198,10 @@ export function stringToReadableStream(str: string): ReadableStream<Uint8Array> 
 export function convertToColumnType(value: XapiValueType, type: ColumnType): XapiValueType {
   switch (type) {
     case "INT":
-    case "BIGDECIMAL":
       const intValue = parseInt(value as string, 10);
       return isNaN(intValue) ? value : intValue;
     case "FLOAT":
+    case "BIGDECIMAL":
       const floatValue = parseFloat(value as string);
       return isNaN(floatValue) ? value : floatValue;
     case "DECIMAL":
@@ -436,7 +436,6 @@ const CHAR_SPACE = 32;      // ' '
 const CHAR_TAB = 9;         // '\t'
 const CHAR_LF = 10;         // '\n'
 const CHAR_CR = 13;         // '\r'
-const CHAR_LT = 60;         // '<'
 const CHAR_GT = 62;         // '>'
 const CHAR_SLASH = 47;      // '/'
 const CHAR_EQUALS = 61;     // '='
@@ -770,11 +769,4 @@ class XapiXmlParser {
     return -1;
   }
 
-  /**
-   * Only use peek() when you actually need the substring.
-   * For comparisons, use matches() instead.
-   */
-  private peek(length: number): string {
-    return this.xml.substring(this.pos, this.pos + length);
-  }
 }

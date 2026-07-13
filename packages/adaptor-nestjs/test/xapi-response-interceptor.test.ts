@@ -1,5 +1,5 @@
 import { CallHandler, ExecutionContext } from '@nestjs/common';
-import { Dataset, write, XapiRoot } from '@xapi-js/core';
+import { Dataset, write, XapiRoot, xapi } from '@xapi-js/core';
 import { firstValueFrom, of } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 import { XapiResponseInterceptor } from '../src/xapi-response-interceptor';
@@ -19,7 +19,7 @@ describe('XapiResponseInterceptor', () => {
   beforeEach(() => {
     interceptor = new XapiResponseInterceptor();
     // Reset the mock before each test
-    vi.mocked(write).mockClear(); // Use write directly
+    vi.mocked(write).mockReset();
   });
 
   it('should be defined', () => {
@@ -111,5 +111,16 @@ describe('XapiResponseInterceptor', () => {
 
     const observableResult = interceptor.intercept(mockContext, mockCallHandler);
     await expect(firstValueFrom(observableResult)).rejects.toThrow(testError);
+  });
+
+  it('should encode a configured schema from plain objects', async () => {
+    const schema = xapi.root({ datasets: { output: xapi.dataset({ id: xapi.int() }) } });
+    const schemaInterceptor = new XapiResponseInterceptor(schema);
+    const callHandler = {
+      handle: () => of({ parameters: {}, datasets: { output: [{ id: 7 }] } }),
+    } as CallHandler;
+    const result = await firstValueFrom(schemaInterceptor.intercept({} as ExecutionContext, callHandler));
+    expect(result).toContain('<Column id="id" size="10" type="INT"');
+    expect(result).toContain('<Col id="id">7</Col>');
   });
 });

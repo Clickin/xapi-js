@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { of, firstValueFrom } from 'rxjs';
 import { XapiRequestInterceptor } from '../src/xapi-request-interceptor';
 import { CallHandler, ExecutionContext } from '@nestjs/common';
-import { XapiRoot } from '@xapi-js/core';
+import { XapiRoot, xapi } from '@xapi-js/core';
 
 describe('XapiRequestInterceptor', () => {
   let interceptor: XapiRequestInterceptor;
@@ -111,5 +111,16 @@ describe('XapiRequestInterceptor', () => {
     const request = mockContext.switchToHttp().getRequest();
     expect(request.body).toBeUndefined();
   });
-});
 
+  it('should decode a configured schema to plain objects', async () => {
+    const schema = xapi.root({ datasets: { test: xapi.dataset({ id: xapi.int() }) } });
+    const schemaInterceptor = new XapiRequestInterceptor(schema);
+    const request = {
+      body: `<?xml version="1.0"?><Root><Dataset id="test"><ColumnInfo><Column id="id" type="INT" size="10"/></ColumnInfo><Rows><Row><Col id="id">7</Col></Row></Rows></Dataset></Root>`,
+      headers: { 'content-type': 'application/xml' },
+    };
+    const context = { switchToHttp: () => ({ getRequest: () => request }) } as ExecutionContext;
+    await schemaInterceptor.intercept(context, { handle: () => of({}) } as CallHandler);
+    expect(request.body).toEqual({ parameters: {}, datasets: { test: [{ id: 7 }] } });
+  });
+});

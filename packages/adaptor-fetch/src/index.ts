@@ -1,4 +1,13 @@
-import { XapiRoot, parse, write } from '@xapi-js/core';
+import {
+  decodeRoot,
+  encodeRoot,
+  parse,
+  RequestOf,
+  ResponseOf,
+  write,
+  XapiOperation,
+  XapiRoot,
+} from '@xapi-js/core';
 
 /**
  * Sends an X-API request using the Fetch API and parses the XML response.
@@ -9,8 +18,25 @@ import { XapiRoot, parse, write } from '@xapi-js/core';
  * @returns A Promise that resolves to an XapiRoot object parsed from the response.
  * @throws {Error} if the response body is empty.
  */
-export async function xapiFetch(url: string, xapi: XapiRoot, options?: RequestInit): Promise<XapiRoot> {
-  const xml = write(xapi);
+export function xapiFetch(url: string, xapi: XapiRoot, options?: RequestInit): Promise<XapiRoot>;
+export function xapiFetch<Operation extends XapiOperation>(
+  url: string,
+  operation: Operation,
+  request: RequestOf<Operation>,
+  options?: RequestInit,
+): Promise<ResponseOf<Operation>>;
+export async function xapiFetch(
+  url: string,
+  input: XapiRoot | XapiOperation,
+  requestOrOptions?: unknown,
+  operationOptions?: RequestInit,
+): Promise<XapiRoot | ResponseOf<XapiOperation>> {
+  const operation = input instanceof XapiRoot ? undefined : input;
+  const requestRoot: XapiRoot = operation
+    ? encodeRoot(operation.request, requestOrOptions as RequestOf<typeof operation>)
+    : input as XapiRoot;
+  const options = operation ? operationOptions : requestOrOptions as RequestInit | undefined;
+  const xml = write(requestRoot);
 
   const response = await fetch(url, {
     method: "POST", // Assuming POST is the default method for sending XAPI data
@@ -27,5 +53,5 @@ export async function xapiFetch(url: string, xapi: XapiRoot, options?: RequestIn
   }
   const text = await response.text();
   const retRoot = parse(text);
-  return retRoot;
+  return operation ? decodeRoot(operation.response, retRoot) : retRoot;
 }

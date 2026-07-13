@@ -1,11 +1,11 @@
 {
-  "name": "@xapi-js/adaptor-nestjs",
+  "name": "@xapi-js/adaptor-hono",
   "type": "module",
   "version": "1.4.0",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "description": "NestJS adaptor for X-API.",
+  "description": "Hono adaptor for X-API.",
   "exports": {
     "types": "./dist/index.d.ts",
     "import": "./dist/index.js",
@@ -23,7 +23,8 @@
   "keywords": [
     "tobesoft",
     "x-api",
-    "xapi"
+    "xapi",
+    "hono"
   ],
   "repository": {
     "type": "git",
@@ -36,10 +37,12 @@
   "author": "Clickin <josh87786@gmail.com>",
   "license": "MIT",
   "dependencies": {
-    "@xapi-js/core": "workspace:*",
-    "express": "^5.1.0",
-    "rxjs": "^7.8.1",
-    "@nestjs/common": "^10.3.10"
+    "@xapi-js/core": "workspace:*"
   },
-  "devDependencies": {}
+  "peerDependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "hono": "^4.12.30"
+  }
 }

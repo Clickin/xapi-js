@@ -1,36 +1,78 @@
 name: Release
 
+permissions:
+  contents: read
+
 on:
   push:
     tags:
       - 'v*'
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
         with:
-          version: 10
+          node-version: 24
+          package-manager-cache: false
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'pnpm'
+      - uses: pnpm/action-setup@v6
 
       - name: Install dependencies
-        run: pnpm install
-
-      - name: Run tests
-        run: pnpm test
+        run: pnpm install --frozen-lockfile
 
       - name: Build
         run: pnpm build
 
-      - run: npx changelogithub
+      - name: Run tests
+        run: pnpm test
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - uses: pnpm/action-setup@v6
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Pack packages
+        run: pnpm --filter './packages/*' -r pack --pack-destination "$GITHUB_WORKSPACE/release"
+
+      - name: Use an OIDC-capable npm CLI
+        run: npm install --global npm@latest
+
+      - name: Publish packages with npm Trusted Publishing
+        run: |
+          npm publish release/xapi-js-core-*.tgz --access public
+          for package in release/xapi-js-adaptor-*.tgz; do
+            npm publish "$package" --access public
+          done
+
+      - run: pnpm dlx changelogithub
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
