@@ -80,7 +80,7 @@ function parseDataset(child: XmlNode, xapiRoot: XapiRoot): void {
 
         const datasetChildren = child.children;
         let columnInfoElement: XmlNode | string | undefined;
-        let rowsElement: XmlNode | string | undefined;
+        let rowsElement: XmlNode | undefined;
         if (datasetChildren) {
           for (let j = 0; j < datasetChildren.length; j++) {
             const datasetChild = datasetChildren[j];
@@ -140,8 +140,7 @@ function parseColumnInfo(columnInfoElement: XmlNode | string | undefined, datase
   }
 }
 
-function parseRows(rowsElement: XmlNode | string | undefined, dataset: Dataset): void {
-  if (typeof rowsElement === 'string') return;
+function parseRows(rowsElement: XmlNode | undefined, dataset: Dataset): void {
   const rows = rowsElement?.children;
   if (!rows) return;
 
@@ -205,9 +204,7 @@ function parseRows(rowsElement: XmlNode | string | undefined, dataset: Dataset):
 
 
 
-function parseParameters(parametersElement: XmlNode | string | undefined, xapiRoot: XapiRoot): void {
-  if (typeof parametersElement === 'string') return;
-  if (!parametersElement) return;
+function parseParameters(parametersElement: XmlNode, xapiRoot: XapiRoot): void {
   const children = parametersElement.children;
   if (!children) return;
 
@@ -250,31 +247,29 @@ export function write(root: XapiRoot): string {
   return builder.toString();
 }
 function writeParameters(builder: XmlStringBuilder, parameters: Parameter[]): void {
-  if (parameters) {
-    builder.writeStartElement("Parameters");
-    for (const parameter of parameters) {
-      const attrs: Record<string, string> = { id: parameter.id };
+  builder.writeStartElement("Parameters");
+  for (const parameter of parameters) {
+    const attrs: Record<string, string> = { id: parameter.id };
 
-      if (parameter.type !== undefined) {
-        attrs.type = parameter.type;
-      }
-
-      if (parameter.value !== undefined) {
-        if (typeof parameter.value === "string") {
-          attrs.value = parameter.value;
-        } else if (parameter.value instanceof Date) {
-          attrs.value = dateToString(parameter.value, parameter.type as Extract<ColumnType, "DATE" | "DATETIME" | "TIME">);
-        } else if (parameter.value instanceof Uint8Array) {
-          attrs.value = uint8ArrayToBase64(parameter.value);
-        } else {
-          attrs.value = String(parameter.value);
-        }
-      }
-
-      builder.writeStartElement("Parameter", attrs, true); // self-closing
+    if (parameter.type !== undefined) {
+      attrs.type = parameter.type;
     }
-    builder.writeEndElement("Parameters");
+
+    if (parameter.value !== undefined) {
+      if (typeof parameter.value === "string") {
+        attrs.value = parameter.value;
+      } else if (parameter.value instanceof Date) {
+        attrs.value = dateToString(parameter.value, parameter.type as Extract<ColumnType, "DATE" | "DATETIME" | "TIME">);
+      } else if (parameter.value instanceof Uint8Array) {
+        attrs.value = uint8ArrayToBase64(parameter.value);
+      } else {
+        attrs.value = String(parameter.value);
+      }
+    }
+
+    builder.writeStartElement("Parameter", attrs, true); // self-closing
   }
+  builder.writeEndElement("Parameters");
 }
 function writeDataset(builder: XmlStringBuilder, dataset: Dataset): void {
   builder.writeStartElement("Dataset", { id: dataset.id });

@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { decodeRoot, encodeRoot, InferRoot, parse, write, xapi } from "../src";
+import { XapiRoot, decodeRoot, encodeRoot, InferRoot, parse, write, xapi } from "../src";
 
 const schema = xapi.root({
   parameters: {
@@ -60,5 +60,23 @@ describe("XAPI schema", () => {
     const root = encodeRoot(schema, data);
     expect(root.getDataset("users")?.columnSize()).toBe(7);
     expect(decodeRoot(schema, root).datasets.users).toEqual([]);
+  });
+
+  it("covers optional values, schema builders, constants, and missing datasets", () => {
+    const optionalSchema = xapi.root({
+      parameters: { optional: xapi.string({ optional: true }) },
+      datasets: { dates: xapi.dataset({ date: xapi.date(), time: xapi.time() }) },
+    });
+    expect(xapi.root({ datasets: {} }).parameters).toEqual({});
+    expect(xapi.operation({ request: optionalSchema, response: optionalSchema }).kind).toBe("xapi-operation");
+
+    const root = encodeRoot(optionalSchema, {
+      parameters: { optional: undefined },
+      datasets: { dates: [{ date: new Date(2025, 0, 1), time: new Date(1970, 0, 1, 1, 2, 3) }] },
+    });
+    root.getDataset("dates")!.addConstColumn({ id: "constant", type: "STRING", size: 1, value: "x" });
+    root.getDataset("dates")!.rows[0]!.cols.push({ id: "unknown", value: "ignored" });
+    expect(decodeRoot(optionalSchema, root).datasets.dates[0]).toMatchObject({ constant: "x" });
+    expect(decodeRoot(optionalSchema, new XapiRoot()).datasets.dates).toEqual([]);
   });
 });

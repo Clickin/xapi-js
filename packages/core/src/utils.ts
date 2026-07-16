@@ -281,9 +281,7 @@ export function _unescapeXml(str?: string): string | undefined {
     .replace(/&amp;/g, '&'); // &amp; must be last to avoid double-decoding
 
   // Then handle control character entities using pre-compiled regex and map
-  result = result.replace(CONTROL_CHAR_ENTITY_REGEX, (match) => {
-    return ENTITY_MAP.get(match) || match;
-  });
+  result = result.replace(CONTROL_CHAR_ENTITY_REGEX, match => ENTITY_MAP.get(match)!);
 
   return result;
 }
@@ -421,9 +419,7 @@ export class XmlStringBuilder {
  * @returns An array of parsed XML nodes.
  */
 export function parseXml(xml: string): XmlNode[] {
-  if (!xml || xml.trim() === '') {
-    return [];
-  }
+  if (!xml) return [];
 
   const parser = new XapiXmlParser(xml);
   return parser.parse();
@@ -442,13 +438,58 @@ const CHAR_EQUALS = 61;     // '='
 const CHAR_QUOTE = 34;      // '"'
 const CHAR_APOS = 39;       // "'"
 
+/** Reuse the small, fixed X-API vocabulary instead of allocating a name per node. */
+function xapiXmlName(xml: string, start: number, end: number): string {
+  switch (end - start) {
+    case 2:
+      if (xml.startsWith('id', start)) return 'id';
+      break;
+    case 3:
+      if (xml.startsWith('Col', start)) return 'Col';
+      if (xml.startsWith('Row', start)) return 'Row';
+      break;
+    case 4:
+      if (xml.startsWith('Root', start)) return 'Root';
+      if (xml.startsWith('Rows', start)) return 'Rows';
+      if (xml.startsWith('size', start)) return 'size';
+      if (xml.startsWith('type', start)) return 'type';
+      break;
+    case 5:
+      if (xml.startsWith('value', start)) return 'value';
+      if (xml.startsWith('xmlns', start)) return 'xmlns';
+      break;
+    case 6:
+      if (xml.startsWith('Column', start)) return 'Column';
+      if (xml.startsWith('OrgRow', start)) return 'OrgRow';
+      break;
+    case 7:
+      if (xml.startsWith('Dataset', start)) return 'Dataset';
+      if (xml.startsWith('version', start)) return 'version';
+      break;
+    case 8:
+      if (xml.startsWith('Datasets', start)) return 'Datasets';
+      break;
+    case 9:
+      if (xml.startsWith('Parameter', start)) return 'Parameter';
+      break;
+    case 10:
+      if (xml.startsWith('ColumnInfo', start)) return 'ColumnInfo';
+      if (xml.startsWith('Parameters', start)) return 'Parameters';
+      break;
+    case 11:
+      if (xml.startsWith('ConstColumn', start)) return 'ConstColumn';
+      break;
+  }
+  return xml.substring(start, end);
+}
+
 /**
  * A lightweight XML parser optimized for X-API structure.
  */
 class XapiXmlParser {
-  private xml: string;
+  private readonly xml: string;
   private pos: number = 0;
-  private length: number;
+  private readonly length: number;
 
   constructor(xml: string) {
     this.xml = xml;
@@ -457,32 +498,35 @@ class XapiXmlParser {
 
   parse(): XmlNode[] {
     const nodes: XmlNode[] = [];
+    const xml = this.xml;
+    const length = this.length;
 
-    while (this.pos < this.length) {
-      this.skipWhitespace();
-
-      if (this.pos >= this.length) break;
+    while (this.pos < length) {
+      while (this.pos < length) {
+        const code = xml.charCodeAt(this.pos);
+        if (code !== CHAR_SPACE && code !== CHAR_TAB && code !== CHAR_LF && code !== CHAR_CR) break;
+        this.pos++;
+      }
+      if (this.pos >= length) break;
 
       // Skip XML declaration
-      if (this.matches('<?xml')) {
-        this.skipUntil('?>');
-        this.pos += 2; // skip ?>
+      if (xml.startsWith('<?xml', this.pos)) {
+        const end = xml.indexOf('?>', this.pos + 5);
+        this.pos = end < 0 ? length : end + 2;
         continue;
       }
 
       // Skip comments
-      if (this.matches('<!--')) {
-        this.skipUntil('-->');
-        this.pos += 3; // skip -->
+      if (xml.startsWith('<!--', this.pos)) {
+        const end = xml.indexOf('-->', this.pos + 4);
+        this.pos = end < 0 ? length : end + 3;
         continue;
       }
 
       // Parse element
-      if (this.current() === '<') {
+      if (xml.charCodeAt(this.pos) === 60) {
         const node = this.parseElement();
-        if (node) {
-          nodes.push(node);
-        }
+        if (node) nodes.push(node);
       } else {
         // Skip unexpected text at root level
         this.pos++;
@@ -493,280 +537,176 @@ class XapiXmlParser {
   }
 
   private parseElement(): XmlNode | null {
-    if (this.current() !== '<') return null;
-
+    const xml = this.xml;
+    const length = this.length;
     this.pos++; // skip <
 
     // Check for closing tag
-    if (this.current() === '/') {
+    if (xml.charCodeAt(this.pos) === CHAR_SLASH) {
       return null; // Closing tag handled by parent
     }
 
     // Parse tag name
-    const tagName = this.parseTagName();
+    const nameStart = this.pos;
+    while (this.pos < length) {
+      const code = xml.charCodeAt(this.pos);
+      if (code === CHAR_SPACE || code === CHAR_TAB || code === CHAR_LF || code === CHAR_CR ||
+          code === CHAR_GT || code === CHAR_SLASH) break;
+      this.pos++;
+    }
+    const tagName = xapiXmlName(xml, nameStart, this.pos);
     if (!tagName) return null;
 
     // Initialize all fields upfront for V8 hidden class optimization
     // This ensures consistent object shape across all XmlNode instances
     const node: XmlNode = {
-      tagName: tagName,
+      tagName,
       attributes: undefined,
       children: undefined
     };
 
     // Parse attributes
     const attributes = this.parseAttributes();
-    if (attributes && Object.keys(attributes).length > 0) {
-      node.attributes = attributes;
-    }
-
-    this.skipWhitespace();
+    if (attributes) node.attributes = attributes;
 
     // Check for self-closing tag
-    if (this.matches('/>')) {
+    if (xml.charCodeAt(this.pos) === CHAR_SLASH && xml.charCodeAt(this.pos + 1) === CHAR_GT) {
       this.pos += 2;
       return node;
     }
 
     // Skip >
-    if (this.current() === '>') {
-      this.pos++;
-    }
+    if (xml.charCodeAt(this.pos) === CHAR_GT) this.pos++;
 
     // Parse children
-    const children: (XmlNode | string)[] = [];
+    let children: (XmlNode | string)[] | undefined;
     let textContent = '';
 
-    while (this.pos < this.length) {
+    while (this.pos < length) {
+      const markup = xml.indexOf('<', this.pos);
+      if (markup < 0) {
+        this.pos = length;
+        break;
+      }
+      if (markup > this.pos) {
+        const text = xml.substring(this.pos, markup);
+        textContent = textContent ? textContent + text : text;
+        this.pos = markup;
+      }
+
       // Check for CDATA
-      if (this.matches('<![CDATA[')) {
-        const cdataText = this.parseCDATA();
-        if (cdataText !== null) {
-          textContent += cdataText;
+      if (xml.startsWith('<![CDATA[', this.pos)) {
+        const start = this.pos + 9;
+        const end = xml.indexOf(']]>', start);
+        if (end < 0) {
+          textContent += xml.substring(start);
+          this.pos = length;
+          break;
         }
+        textContent += xml.substring(start, end);
+        this.pos = end + 3;
         continue;
       }
 
       // Check for closing tag
-      if (this.matches('</')) {
-        if (textContent) {
-          children.push(textContent);
-        }
+      if (xml.charCodeAt(this.pos + 1) === CHAR_SLASH) {
+        if (textContent && (!children || textContent.trim())) (children ??= []).push(textContent);
         this.pos += 2; // skip </
-        this.skipUntil('>');
-        this.pos++; // skip >
+        const end = xml.indexOf('>', this.pos);
+        this.pos = end < 0 ? length : end + 1;
         break;
       }
 
-      // Check for child element
-      if (this.current() === '<') {
-        // Save any accumulated text before parsing child
-        if (textContent.trim()) {
-          children.push(textContent);
-          textContent = '';
-        }
-
-        const child = this.parseElement();
-        if (child) {
-          children.push(child);
-        }
-      } else {
-        // Accumulate text content
-        textContent += this.current();
-        this.pos++;
+      // Comments do not contribute to the DOM tree.
+      if (xml.startsWith('<!--', this.pos)) {
+        const end = xml.indexOf('-->', this.pos + 4);
+        this.pos = end < 0 ? length : end + 3;
+        continue;
       }
+
+      // Check for child element
+      if (textContent && textContent.trim()) {
+        (children ??= []).push(textContent);
+      }
+      textContent = '';
+      const child = this.parseElement();
+      if (child) (children ??= []).push(child);
     }
 
-    if (children.length > 0) {
-      node.children = children;
-    }
+    if (children) node.children = children;
 
     return node;
   }
 
-  private parseTagName(): string {
-    const start = this.pos;
-
-    while (this.pos < this.length) {
-      const code = this.currentCharCode();
-
-      if (this.isWhitespace(code) || code === CHAR_GT || code === CHAR_SLASH) {
-        break;
-      }
-
-      this.pos++;
-    }
-
-    return this.xml.substring(start, this.pos);
-  }
-
   private parseAttributes(): Record<string, string> | undefined {
-    const attrs: Record<string, string> = {};
+    const xml = this.xml;
+    const length = this.length;
+    let attrs: Record<string, string> | undefined;
 
-    while (this.pos < this.length) {
-      this.skipWhitespace();
-
-      const ch = this.current();
+    while (this.pos < length) {
+      while (this.pos < length) {
+        const code = xml.charCodeAt(this.pos);
+        if (code !== CHAR_SPACE && code !== CHAR_TAB && code !== CHAR_LF && code !== CHAR_CR) break;
+        this.pos++;
+      }
 
       // End of attributes
-      if (ch === '>' || ch === '/' || this.matches('/>')) {
-        break;
-      }
+      const code = xml.charCodeAt(this.pos);
+      if (code === CHAR_GT || code === CHAR_SLASH) break;
 
       // Parse attribute name
-      const attrName = this.parseAttributeName();
+      const nameStart = this.pos;
+      while (this.pos < length) {
+        const code = xml.charCodeAt(this.pos);
+        if (code === CHAR_EQUALS || code === CHAR_SPACE || code === CHAR_TAB || code === CHAR_LF ||
+            code === CHAR_CR || code === CHAR_GT || code === CHAR_SLASH) break;
+        this.pos++;
+      }
+      const attrName = xapiXmlName(xml, nameStart, this.pos);
       if (!attrName) break;
 
-      this.skipWhitespace();
+      while (this.pos < length) {
+        const code = xml.charCodeAt(this.pos);
+        if (code !== CHAR_SPACE && code !== CHAR_TAB && code !== CHAR_LF && code !== CHAR_CR) break;
+        this.pos++;
+      }
 
       // Skip =
-      if (this.current() === '=') {
+      if (xml.charCodeAt(this.pos) === CHAR_EQUALS) this.pos++;
+
+      while (this.pos < length) {
+        const code = xml.charCodeAt(this.pos);
+        if (code !== CHAR_SPACE && code !== CHAR_TAB && code !== CHAR_LF && code !== CHAR_CR) break;
         this.pos++;
       }
-
-      this.skipWhitespace();
 
       // Parse attribute value
-      const attrValue = this.parseAttributeValue();
-      attrs[attrName] = attrValue;
-    }
-
-    return Object.keys(attrs).length > 0 ? attrs : undefined;
-  }
-
-  private parseAttributeName(): string {
-    const start = this.pos;
-
-    while (this.pos < this.length) {
-      const code = this.currentCharCode();
-
-      if (code === CHAR_EQUALS || this.isWhitespace(code) ||
-          code === CHAR_GT || code === CHAR_SLASH) {
-        break;
-      }
-
-      this.pos++;
-    }
-
-    return this.xml.substring(start, this.pos);
-  }
-
-  private parseAttributeValue(): string {
-    const quoteCode = this.currentCharCode();
-
-    if (quoteCode !== CHAR_QUOTE && quoteCode !== CHAR_APOS) {
-      // No quotes - read until whitespace or >
-      const start = this.pos;
-      while (this.pos < this.length) {
-        const code = this.currentCharCode();
-        if (this.isWhitespace(code) || code === CHAR_GT || code === CHAR_SLASH) {
-          break;
+      const quote = xml.charCodeAt(this.pos);
+      let valueStart: number;
+      let valueEnd: number;
+      if (quote === CHAR_QUOTE || quote === CHAR_APOS) {
+        valueStart = ++this.pos;
+        valueEnd = xml.indexOf(quote === CHAR_QUOTE ? '"' : "'", valueStart);
+        if (valueEnd < 0) {
+          valueEnd = length;
+          this.pos = length;
+        } else {
+          this.pos = valueEnd + 1;
         }
-        this.pos++;
+      } else {
+        valueStart = this.pos;
+        while (this.pos < length) {
+          const code = xml.charCodeAt(this.pos);
+          if (code === CHAR_SPACE || code === CHAR_TAB || code === CHAR_LF || code === CHAR_CR ||
+              code === CHAR_GT || code === CHAR_SLASH) break;
+          this.pos++;
+        }
+        valueEnd = this.pos;
       }
-      return this.xml.substring(start, this.pos);
+      (attrs ??= {})[attrName] = xml.substring(valueStart, valueEnd);
     }
 
-    this.pos++; // skip opening quote
-    const start = this.pos;
-
-    while (this.pos < this.length) {
-      const code = this.currentCharCode();
-
-      if (code === quoteCode) {
-        const value = this.xml.substring(start, this.pos);
-        this.pos++; // skip closing quote
-        return value;
-      }
-
-      this.pos++;
-    }
-
-    return this.xml.substring(start, this.pos);
-  }
-
-  private parseCDATA(): string | null {
-    if (!this.matches('<![CDATA[')) return null;
-
-    this.pos += 9; // skip <![CDATA[
-
-    const endPos = this.findString(']]>');
-    if (endPos === -1) {
-      // No closing tag found, consume rest of document
-      const content = this.xml.substring(this.pos);
-      this.pos = this.length;
-      return content;
-    }
-
-    const content = this.xml.substring(this.pos, endPos);
-    this.pos = endPos + 3; // skip ]]>
-    return content;
-  }
-
-  private skipWhitespace(): void {
-    while (this.pos < this.length) {
-      const code = this.currentCharCode();
-      if (code !== CHAR_SPACE && code !== CHAR_TAB && code !== CHAR_LF && code !== CHAR_CR) {
-        break;
-      }
-      this.pos++;
-    }
-  }
-
-  private isWhitespace(code: number): boolean {
-    return code === CHAR_SPACE || code === CHAR_TAB || code === CHAR_LF || code === CHAR_CR;
-  }
-
-  private skipUntil(target: string): void {
-    const pos = this.findString(target);
-    if (pos !== -1) {
-      this.pos = pos;
-    } else {
-      this.pos = this.length; // Not found, skip to end
-    }
-  }
-
-  private current(): string {
-    return this.xml[this.pos];
-  }
-
-  private currentCharCode(): number {
-    return this.xml.charCodeAt(this.pos);
-  }
-
-  /**
-   * Checks if the string at the given position matches the target string.
-   * This avoids creating substring instances for comparison.
-   * @param str - The target string to match
-   * @param pos - The position to check from (default: current position)
-   */
-  private matches(str: string, pos: number = this.pos): boolean {
-    const len = str.length;
-    if (pos + len > this.length) {
-      return false;
-    }
-    for (let i = 0; i < len; i++) {
-      if (this.xml.charCodeAt(pos + i) !== str.charCodeAt(i)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  /**
-   * Finds the position of a target string starting from the given position.
-   * @param str - The string to find
-   * @param startPos - Starting position (default: current position)
-   * @returns The position where the string is found, or -1 if not found
-   */
-  private findString(str: string, startPos: number = this.pos): number {
-    const maxPos = this.length - str.length;
-    for (let pos = startPos; pos <= maxPos; pos++) {
-      if (this.matches(str, pos)) {
-        return pos;
-      }
-    }
-    return -1;
+    return attrs;
   }
 
 }

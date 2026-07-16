@@ -1170,4 +1170,21 @@ describe("writeString", () => {
       expect(row.orgRow?.length).toBe(0); // Empty OrgRow has no columns
     });
   })
+
+  it("covers tolerated parser structure variants", () => {
+    expect(parse("<Root/>").datasetSize()).toBe(0);
+    expect(parse("<Root>ignored</Root>").datasetSize()).toBe(0);
+    expect(parse("<Root><Parameters/><Dataset id=noRows><ColumnInfo/><Rows/></Dataset></Root>").getDataset("noRows")?.rowSize()).toBe(0);
+    expect(() => parse("<Root><Dataset id=empty/></Root>")).toThrow(InvalidXmlError);
+    expect(parse("<Root><Ignored/><Datasets/><Dataset id=direct><Ignored/><ColumnInfo/><Rows><Ignored/><Row>text<Ignored/><OrgRow>ignored</OrgRow></Row></Rows></Dataset></Root>").getDataset("direct")?.rowSize()).toBe(1);
+    expect(parse("<Root><Parameters><Ignored/></Parameters><Dataset id=d>ignored<ColumnInfo><Ignored/></ColumnInfo><Rows><Row><OrgRow>ignored</OrgRow></Row></Rows></Dataset></Root>").getDataset("d")?.rowSize()).toBe(1);
+    expect(() => parse("<Root><Dataset id=d><ColumnInfo/><Rows><Col/></Rows></Dataset></Root>")).toThrow(InvalidXmlError);
+    expect(() => parse("<Root><Dataset id=d><ColumnInfo/><Rows><OrgRow/></Rows></Dataset></Root>")).toThrow(InvalidXmlError);
+  });
+
+  it("writes datasets with no column metadata", () => {
+    const root = new XapiRoot();
+    root.addDataset(new Dataset("empty"));
+    expect(write(root)).not.toContain("<ColumnInfo>");
+  });
 });

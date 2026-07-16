@@ -12,6 +12,7 @@ import {
   escapeXml,
   isXapiRoot,
   makeParseEntities,
+  parseXml,
   stringToDate,
   stringToReadableStream,
   uint8ArrayToBase64,
@@ -509,6 +510,54 @@ describe("Utils Tests", () => {
       expect(xml).toContain('    </level2>');
       expect(xml).toContain('  </level1>');
       expect(xml).toContain('</root>');
+    });
+  });
+
+  describe("parseXml", () => {
+    it("parses X-API names, text, CDATA, comments, and attribute forms", () => {
+      const nodes = parseXml(`
+        <?xml version="1.0"?>
+        <!-- document comment -->
+        <Root xmlns="urn:xapi" version='1'>
+          <!-- nested comment -->
+          <Parameters><Parameter id="p" type="STRING">value<![CDATA[-cdata]]></Parameter></Parameters>
+          <Datasets><Dataset id=d><ColumnInfo><ConstColumn id="constant" size="1" type="STRING" value="x"/><Column id="name" size='20' type="STRING"/></ColumnInfo><Rows><Row type="insert"><Col id="name">Kim</Col><OrgRow><Col id="name">Old</Col></OrgRow></Row></Rows></Dataset></Datasets>
+        </Root>
+      `);
+
+      const root = nodes[0]!;
+      expect(root.tagName).toBe("Root");
+      expect(root.attributes).toEqual({ xmlns: "urn:xapi", version: "1" });
+      const parameters = root.children?.find(node => typeof node !== "string" && node.tagName === "Parameters");
+      expect(parameters).toBeDefined();
+      const parameter = (parameters as Exclude<typeof parameters, string>).children?.[0] as Exclude<typeof parameters, string>;
+      expect(parameter.children).toEqual(["value-cdata"]);
+      expect(root.children?.some(node => typeof node !== "string" && node.tagName === "Datasets")).toBe(true);
+    });
+
+    it("returns no nodes for empty or whitespace-only input", () => {
+      expect(parseXml("")).toEqual([]);
+      expect(parseXml(" \t\r\n ")).toEqual([]);
+    });
+
+    it("tolerates every scanner fallback and incomplete XML suffix", () => {
+      expect(parseXml("x</Root><AA/><AAA/><AAAA/><AAAAA/><AAAAAA/><AAAAAAA/><AAAAAAAA/><AAAAAAAAA/><AAAAAAAAAA/><AAAAAAAAAAA/><Row/><Col/><Rows/><size/><type/><value/><xmlns/><Column/><Dataset/><OrgRow/><version/><Datasets/><Parameter/><ColumnInfo/><Parameters/><ConstColumn/>")).toHaveLength(26);
+      expect(parseXml("<?xml")).toEqual([]);
+      expect(parseXml("<!--")).toEqual([]);
+      expect(parseXml("<")).toEqual([]);
+      expect(parseXml("<Root><")).toHaveLength(1);
+      expect(parseXml("<Root =>")).toHaveLength(1);
+      expect(parseXml("<Root id/>")).toHaveLength(1);
+      expect(parseXml("<Root>text")).toHaveLength(1);
+      expect(parseXml("<Root><![CDATA[text")).toHaveLength(1);
+      expect(parseXml("<Root><!--")).toHaveLength(1);
+      expect(parseXml("<Root></")).toHaveLength(1);
+      expect(parseXml("<Root value=plain other='unterminated")).toHaveLength(1);
+      expect(parseXml("<Root id = \"x\"><Col/>text<Col/></Root>")[0]?.children).toEqual([
+        { tagName: "Col", attributes: undefined, children: undefined },
+        "text",
+        { tagName: "Col", attributes: undefined, children: undefined },
+      ]);
     });
   });
 });
