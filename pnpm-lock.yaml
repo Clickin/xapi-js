@@ -35,13 +35,13 @@ importers:
       '@xapi-js/core':
         specifier: workspace:*
         version: link:../core
-      express:
-        specifier: ^5.1.0
-        version: 5.1.0
     devDependencies:
       '@types/express':
         specifier: ^5.0.3
         version: 5.0.3
+      express:
+        specifier: ^5.1.0
+        version: 5.1.0
       node-mocks-http:
         specifier: ^1.17.2
         version: 1.17.2(@types/express@5.0.3)(@types/node@20.19.4)
@@ -51,13 +51,13 @@ importers:
       '@xapi-js/core':
         specifier: workspace:*
         version: link:../core
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.4)(@vitest/coverage-istanbul@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(vite@8.1.4(@types/node@20.19.4))
     devDependencies:
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.4)(@vitest/coverage-istanbul@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(vite@8.1.4(@types/node@20.19.4))
       vitest-fetch-mock:
         specifier: ^0.4.5
         version: 0.4.5(vitest@4.1.10)
@@ -74,12 +74,13 @@ importers:
 
   packages/adaptor-nestjs:
     dependencies:
-      '@nestjs/common':
-        specifier: ^10.3.10
-        version: 10.4.19(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@xapi-js/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
+      '@nestjs/common':
+        specifier: ^10.3.10
+        version: 10.4.19(reflect-metadata@0.2.2)(rxjs@7.8.2)
       express:
         specifier: ^5.1.0
         version: 5.1.0

@@ -1,7 +1,7 @@
 {
   "name": "@xapi-js/adaptor-nestjs",
   "type": "module",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -36,10 +36,16 @@
   "author": "Clickin <josh87786@gmail.com>",
   "license": "MIT",
   "dependencies": {
-    "@xapi-js/core": "workspace:*",
+    "@xapi-js/core": "workspace:*"
+  },
+  "peerDependencies": {
     "express": "^5.1.0",
     "rxjs": "^7.8.1",
     "@nestjs/common": "^10.3.10"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "express": "^5.1.0",
+    "rxjs": "^7.8.1",
+    "@nestjs/common": "^10.3.10"
+  }
 }

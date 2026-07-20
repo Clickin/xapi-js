@@ -1,7 +1,7 @@
 {
   "name": "@xapi-js/adaptor-express",
   "type": "module",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -36,10 +36,13 @@
   "author": "Clickin <josh87786@gmail.com>",
   "license": "MIT",
   "dependencies": {
-    "@xapi-js/core": "workspace:*",
+    "@xapi-js/core": "workspace:*"
+  },
+  "peerDependencies": {
     "express": "^5.1.0"
   },
   "devDependencies": {
+    "express": "^5.1.0",
     "@types/express": "^5.0.3",
     "node-mocks-http": "^1.17.2"
   }
