@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Dataset, nexacroJsonCodec, parseJson, writeJsonString, XapiRoot } from "../src";
+import { Dataset, decodeRoot, nexacroJsonCodec, parseJson, writeJsonString, xapi, XapiRoot } from "../src";
 
 describe("Nexacro JSON codec", () => {
   it("round-trips row status and original rows using Nexacro's wire format", () => {
@@ -22,5 +22,19 @@ describe("Nexacro JSON codec", () => {
     });
     expect(JSON.parse(writeJsonString(root)).version).toBe("1.0");
     expect(parseJson(writeJsonString(root)).datasetSize()).toBe(1);
+  });
+
+  it("deserializes JSON and lets the schema choose the result type", () => {
+    const schema = xapi.root({ datasets: { values: xapi.dataset({ amount: xapi.string() }) } });
+    const root = nexacroJsonCodec.deserialize({
+      version: "1.0",
+      Datasets: [{
+        id: "values",
+        ColumnInfo: { Column: [{ id: "amount", type: "DOUBLE", size: 20 }] },
+        Rows: [{ _RowType_: "N", amount: "67.00" }],
+      }],
+    });
+
+    expect(decodeRoot(schema, root).datasets.values[0].amount).toBe("67.00");
   });
 });

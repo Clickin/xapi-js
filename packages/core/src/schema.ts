@@ -93,6 +93,31 @@ export type InferRoot<Schema extends XapiRootSchema> = {
 export type RequestOf<Operation extends XapiOperation> = InferRoot<Operation["request"]>;
 export type ResponseOf<Operation extends XapiOperation> = InferRoot<Operation["response"]>;
 
+type CompiledDatasetSchema = {
+  columns: Map<string, XapiColumnSchema>;
+};
+
+type CompiledSchema = {
+  parameters: Map<string, XapiColumnSchema>;
+  datasets: Map<string, CompiledDatasetSchema>;
+};
+
+const schemaCache = new WeakMap<object, CompiledSchema>();
+
+function compileSchema(schema: XapiRootSchema): CompiledSchema {
+  const cached = schemaCache.get(schema);
+  if (cached) return cached;
+
+  const compiled: CompiledSchema = {
+    parameters: new Map(Object.entries(schema.parameters)),
+    datasets: new Map(Object.entries(schema.datasets).map(([id, dataset]) => [id, {
+      columns: new Map(Object.entries(dataset.columns)),
+    }])),
+  };
+  schemaCache.set(schema, compiled);
+  return compiled;
+}
+
 const defaultSizes: Record<ColumnType, number> = {
   STRING: 256,
   INT: 10,
@@ -171,25 +196,27 @@ export const xapi = {
 
 export function encodeRoot<Schema extends XapiRootSchema>(schema: Schema, value: InferRoot<Schema>): XapiRoot {
   const root = new XapiRoot();
+  const compiled = compileSchema(schema);
 
-  for (const [id, parameterSchema] of Object.entries(schema.parameters)) {
+  for (const [id, parameterSchema] of compiled.parameters) {
     const parameterValue = value.parameters[id as keyof typeof value.parameters] as XapiValueType;
     if (parameterValue !== undefined || !parameterSchema.optional) {
       root.addParameter({ id, type: parameterSchema.type, value: parameterValue });
     }
   }
 
-  for (const [datasetId, datasetSchema] of Object.entries(schema.datasets)) {
+  for (const [datasetId, datasetDefinition] of compiled.datasets) {
     const dataset = new Dataset(datasetId);
-    for (const [id, columnSchema] of Object.entries(datasetSchema.columns)) {
+    for (const [id, columnSchema] of datasetDefinition.columns) {
       dataset.addColumn({ id, type: columnSchema.type, size: columnSchema.size });
     }
 
     const rows = value.datasets[datasetId as keyof typeof value.datasets] as EncodedRow[];
+    const columnIds = [...datasetDefinition.columns.keys()];
     for (const row of rows) {
       const rowIndex = dataset.newRow();
       dataset.rows[rowIndex].type = row.$rowType;
-      for (const id of Object.keys(datasetSchema.columns)) {
+      for (const id of columnIds) {
         dataset.setColumn(rowIndex, id, row[id]);
       }
       if (row.$orgRow) {
@@ -203,15 +230,17 @@ export function encodeRoot<Schema extends XapiRootSchema>(schema: Schema, value:
 }
 
 export function decodeRoot<Schema extends XapiRootSchema>(schema: Schema, root: XapiRoot): InferRoot<Schema> {
+  const compiled = compileSchema(schema);
   const parameters: Record<string, XapiValueType> = {};
-  for (const id of Object.keys(schema.parameters)) {
+  for (const [id, parameterSchema] of compiled.parameters) {
     const parameter = root.getParameter(id);
     const value = parameter?.rawValue !== undefined ? parameter.rawValue : parameter?.value;
-    if (value !== undefined) parameters[id] = convertToColumnType(value, schema.parameters[id].type);
+    if (value !== undefined) parameters[id] = convertToColumnType(value, parameterSchema.type);
   }
 
   const datasets: Record<string, EncodedRow[]> = {};
-  for (const [datasetId, datasetSchema] of Object.entries(schema.datasets)) {
+  for (const [datasetId, datasetDefinition] of compiled.datasets) {
+    const schemaColumns = datasetDefinition.columns;
     const dataset = root.getDataset(datasetId);
     if (!dataset) {
       datasets[datasetId] = [];
@@ -222,7 +251,7 @@ export function decodeRoot<Schema extends XapiRootSchema>(schema: Schema, root: 
     datasets[datasetId] = dataset.getRows().map(row => {
       const value: EncodedRow = { ...constants };
       for (const column of row.cols) {
-        const columnSchema = datasetSchema.columns[column.id];
+        const columnSchema = schemaColumns.get(column.id);
         if (columnSchema) {
           const rawValue = column.rawValue !== undefined ? column.rawValue : column.value;
           value[column.id] = rawValue === undefined ? undefined : convertToColumnType(rawValue, columnSchema.type);
@@ -231,7 +260,7 @@ export function decodeRoot<Schema extends XapiRootSchema>(schema: Schema, root: 
       if (row.type) value.$rowType = row.type;
       if (row.orgRow) {
         value.$orgRow = Object.fromEntries(row.orgRow.flatMap(column => {
-          const columnSchema = datasetSchema.columns[column.id];
+          const columnSchema = schemaColumns.get(column.id);
           if (!columnSchema) return [];
           const rawValue = column.rawValue !== undefined ? column.rawValue : column.value;
           return [[column.id, rawValue === undefined ? undefined : convertToColumnType(rawValue, columnSchema.type)]];

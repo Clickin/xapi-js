@@ -57,11 +57,11 @@ function sizeOf(size: number | string | undefined, type: ColumnType): number {
 
 function jsonValue(value: unknown, type: ColumnType | undefined): XapiValueType {
   if (value === null || value === undefined) return undefined;
-  if (type === "DATE" || type === "DATETIME" || type === "TIME") {
-    return typeof value === "string" ? convertToColumnType(value, type) : value as XapiValueType;
-  }
-  if (type === "BLOB" && typeof value === "string") return convertToColumnType(value, type);
-  return value as XapiValueType;
+  return convertToColumnType(typeof value === "string" ? value : String(value), normalizeColumnType(type));
+}
+
+function jsonRawValue(value: unknown): string | undefined {
+  return value === null || value === undefined ? undefined : String(value);
 }
 
 function jsonWireValue(value: XapiValueType, type: ColumnType): string | number | boolean | undefined {
@@ -82,7 +82,7 @@ function readRow(dataset: Dataset, row: NexacroJsonRow): void {
     if (previous?.type !== "update") return;
     previous.orgRow = dataset.getColumns()
       .filter(column => Object.prototype.hasOwnProperty.call(row, column.id))
-      .map(column => ({ id: column.id, value: jsonValue(row[column.id], column.type) }));
+      .map(column => ({ id: column.id, value: jsonValue(row[column.id], column.type), rawValue: jsonRawValue(row[column.id]) }));
     return;
   }
 
@@ -90,7 +90,7 @@ function readRow(dataset: Dataset, row: NexacroJsonRow): void {
   dataset.rows[index].type = rowType;
   for (const column of dataset.getColumns()) {
     if (Object.prototype.hasOwnProperty.call(row, column.id)) {
-      dataset.rows[index].cols.push({ id: column.id, value: jsonValue(row[column.id], column.type) });
+      dataset.rows[index].cols.push({ id: column.id, value: jsonValue(row[column.id], column.type), rawValue: jsonRawValue(row[column.id]) });
     }
   }
 }
@@ -99,13 +99,13 @@ function readJson(value: NexacroJsonRoot): XapiRoot {
   const root = new XapiRoot();
   for (const parameter of value.Parameters ?? []) {
     const type = normalizeColumnType(parameter.type);
-    root.addParameter({ id: parameter.id, type, value: jsonValue(parameter.value, type) });
+    root.addParameter({ id: parameter.id, type, value: jsonValue(parameter.value, type), rawValue: jsonRawValue(parameter.value) });
   }
   for (const source of value.Datasets ?? []) {
     const dataset = new Dataset(source.id);
     for (const column of source.ColumnInfo.ConstColumn ?? []) {
       const type = normalizeColumnType(column.type);
-      dataset.addConstColumn({ id: column.id, type, size: sizeOf(column.size, type), value: jsonValue(column.value, type) });
+      dataset.addConstColumn({ id: column.id, type, size: sizeOf(column.size, type), value: jsonValue(column.value, type), rawValue: jsonRawValue(column.value) });
     }
     for (const column of source.ColumnInfo.Column) {
       const type = normalizeColumnType(column.type);
