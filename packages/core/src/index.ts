@@ -7,3 +7,4 @@ export * from './types';
 export * from './utils';
 export * from './schema';
 export { Dataset, XapiRoot } from './xapi-data';
+export * from './codec';

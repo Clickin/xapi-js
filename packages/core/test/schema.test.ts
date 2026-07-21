@@ -79,4 +79,32 @@ describe("XAPI schema", () => {
     expect(decodeRoot(optionalSchema, root).datasets.dates[0]).toMatchObject({ constant: "x" });
     expect(decodeRoot(optionalSchema, new XapiRoot()).datasets.dates).toEqual([]);
   });
+
+  it("preserves row status and original values across schema operations", () => {
+    const data: InferRoot<typeof schema> = {
+      parameters: { ErrorCode: 0, ErrorMsg: "success" },
+      datasets: {
+        users: [{
+          id: 2,
+          balance: 10,
+          score: 1,
+          ratio: 1,
+          name: "new",
+          createdAt: new Date(2025, 0, 2),
+          $rowType: "update",
+          $orgRow: { id: 1, name: "old" },
+        }],
+      },
+    };
+
+    const root = encodeRoot(schema, data);
+    expect(root.getDataset("users")?.rows[0]).toMatchObject({
+      type: "update",
+      orgRow: [{ id: "id", value: 1 }, { id: "name", value: "old" }],
+    });
+    expect(decodeRoot(schema, root).datasets.users[0]).toMatchObject({
+      $rowType: "update",
+      $orgRow: { id: 1, name: "old" },
+    });
+  });
 });

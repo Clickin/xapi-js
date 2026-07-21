@@ -1,5 +1,5 @@
 import { Dataset, XapiRoot } from "./xapi-data";
-import { ColumnType, XapiValueType } from "./types";
+import { ColumnType, RowType, XapiValueType } from "./types";
 
 export type XapiTypeMap = {
   STRING: string;
@@ -61,7 +61,16 @@ export type InferColumns<Columns extends XapiColumns> = {
   [Key in OptionalColumnKeys<Columns>]?: XapiTypeMap[Columns[Key]["type"]];
 };
 
-export type InferDataset<Schema extends XapiDatasetSchema> = InferColumns<Schema["columns"]>[];
+/**
+ * A schema row remains assignable from the old plain object shape, while
+ * retaining the Nexacro row metadata when an operation needs it.
+ */
+export type InferDatasetRow<Schema extends XapiDatasetSchema> = InferColumns<Schema["columns"]> & {
+  $rowType?: RowType;
+  $orgRow?: Partial<InferColumns<Schema["columns"]>>;
+};
+
+export type InferDataset<Schema extends XapiDatasetSchema> = InferDatasetRow<Schema>[];
 
 export type InferRoot<Schema extends XapiRootSchema> = {
   parameters: InferColumns<Schema["parameters"]>;
@@ -158,8 +167,12 @@ export function encodeRoot<Schema extends XapiRootSchema>(schema: Schema, value:
     const rows = value.datasets[datasetId as keyof typeof value.datasets] as Record<string, XapiValueType>[];
     for (const row of rows) {
       const rowIndex = dataset.newRow();
+      dataset.rows[rowIndex].type = row.$rowType;
       for (const id of Object.keys(datasetSchema.columns)) {
         dataset.setColumn(rowIndex, id, row[id]);
+      }
+      if (row.$orgRow) {
+        dataset.rows[rowIndex].orgRow = Object.entries(row.$orgRow).map(([id, value]) => ({ id, value }));
       }
     }
     root.addDataset(dataset);
@@ -189,6 +202,8 @@ export function decodeRoot<Schema extends XapiRootSchema>(schema: Schema, root: 
       for (const column of row.cols) {
         if (column.id in datasetSchema.columns) value[column.id] = column.value;
       }
+      if (row.type) value.$rowType = row.type;
+      if (row.orgRow) value.$orgRow = Object.fromEntries(row.orgRow.map(column => [column.id, column.value]));
       return value;
     });
   }
