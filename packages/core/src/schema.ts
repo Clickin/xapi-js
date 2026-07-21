@@ -72,6 +72,11 @@ export type InferDatasetRow<Schema extends XapiDatasetSchema> = InferColumns<Sch
 
 export type InferDataset<Schema extends XapiDatasetSchema> = InferDatasetRow<Schema>[];
 
+type EncodedRow = Record<string, XapiValueType> & {
+  $rowType?: RowType;
+  $orgRow?: Record<string, XapiValueType>;
+};
+
 export type InferRoot<Schema extends XapiRootSchema> = {
   parameters: InferColumns<Schema["parameters"]>;
   datasets: {
@@ -164,7 +169,7 @@ export function encodeRoot<Schema extends XapiRootSchema>(schema: Schema, value:
       dataset.addColumn({ id, type: columnSchema.type, size: columnSchema.size });
     }
 
-    const rows = value.datasets[datasetId as keyof typeof value.datasets] as Record<string, XapiValueType>[];
+    const rows = value.datasets[datasetId as keyof typeof value.datasets] as EncodedRow[];
     for (const row of rows) {
       const rowIndex = dataset.newRow();
       dataset.rows[rowIndex].type = row.$rowType;
@@ -188,7 +193,7 @@ export function decodeRoot<Schema extends XapiRootSchema>(schema: Schema, root: 
     if (value !== undefined) parameters[id] = value;
   }
 
-  const datasets: Record<string, Record<string, XapiValueType>[]> = {};
+  const datasets: Record<string, EncodedRow[]> = {};
   for (const [datasetId, datasetSchema] of Object.entries(schema.datasets)) {
     const dataset = root.getDataset(datasetId);
     if (!dataset) {
@@ -198,7 +203,7 @@ export function decodeRoot<Schema extends XapiRootSchema>(schema: Schema, root: 
 
     const constants = Object.fromEntries(dataset.getConstColumns().map(({ id, value }) => [id, value]));
     datasets[datasetId] = dataset.getRows().map(row => {
-      const value: Record<string, XapiValueType> = { ...constants };
+      const value: EncodedRow = { ...constants };
       for (const column of row.cols) {
         if (column.id in datasetSchema.columns) value[column.id] = column.value;
       }

@@ -134,7 +134,7 @@ function writeJson(root: XapiRoot): NexacroJsonRoot {
       },
       Rows: dataset.getRows().flatMap(row => {
         const type = row.type === "insert" ? "I" : row.type === "update" ? "U" : row.type === "delete" ? "D" : "N";
-        const current = { _RowType_: type, ...columnsToObject(row.cols) };
+        const current: NexacroJsonRow = { _RowType_: type, ...columnsToObject(row.cols) };
         if (!row.orgRow) return [current];
         return [current, { _RowType_: "O" as const, ...columnsToObject(row.orgRow) }];
       }),
