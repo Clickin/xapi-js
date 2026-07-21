@@ -126,6 +126,11 @@ describe("Utils Tests", () => {
       const result = stringToDate("20230615143022999");
       expect(result).toBeUndefined();
     });
+
+    it("should parse Nexacro millisecond formats when the type is known", () => {
+      expect(stringToDate("20230615143022999", "DATETIME")?.getMilliseconds()).toBe(999);
+      expect(stringToDate("143022999", "TIME")?.getMilliseconds()).toBe(999);
+    });
   });
 
   describe("dateToString", () => {
@@ -219,10 +224,15 @@ describe("Utils Tests", () => {
     it("convertToColumnType branch", async () => {
       expect(convertToColumnType("123", "INT")).toBe(123);
       expect(convertToColumnType("123", "BIGDECIMAL")).toBe(123); // BIGDECIMAL 케이스 추가
+      expect(convertToColumnType("67.00", "DOUBLE")).toBe(67);
+      expect(convertToColumnType("67", "LONG")).toBe(67);
+      expect(convertToColumnType("67.00", "BIG_DECIMAL")).toBe(67);
+      expect(convertToColumnType("true", "BOOLEAN")).toBe(true);
       expect(convertToColumnType("123.45", "FLOAT")).toBe(123.45);
       expect(convertToColumnType("123.45", "DECIMAL")).toBe(123.45); // DECIMAL 케이스 추가
       expect(convertToColumnType("20230615", "DATE")).toBeInstanceOf(Date);
       expect(convertToColumnType("20230615143022", "DATETIME")).toBeInstanceOf(Date);
+      expect(convertToColumnType("20230615143022999", "DATE_TIME")).toBeInstanceOf(Date);
       expect(convertToColumnType("143022", "TIME")).toBeInstanceOf(Date);
       expect(convertToColumnType("Hello", "STRING")).toBe("Hello");
       expect(convertToColumnType("SGVsbG8gV29ybGQ=", "BLOB")).toBeInstanceOf(Uint8Array);

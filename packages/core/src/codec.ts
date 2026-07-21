@@ -1,19 +1,19 @@
 import { Dataset, XapiRoot } from "./xapi-data";
 import { Col, ColumnType, RowType, XapiValueType } from "./types";
-import { convertToColumnType, dateToString, uint8ArrayToBase64 } from "./utils";
+import { convertToColumnType, dateToString, normalizeColumnType, uint8ArrayToBase64 } from "./utils";
 
 /** The wire representation used by Nexacro's Dataset JSON format. */
 export interface NexacroJsonParameter {
   id: string;
   type?: ColumnType;
-  value?: string | number;
+  value?: string | number | boolean;
 }
 
 export interface NexacroJsonColumn {
   id: string;
   type?: ColumnType;
   size?: number | string;
-  value?: string | number;
+  value?: string | number | boolean;
 }
 
 export interface NexacroJsonRow {
@@ -64,11 +64,11 @@ function jsonValue(value: unknown, type: ColumnType | undefined): XapiValueType 
   return value as XapiValueType;
 }
 
-function jsonWireValue(value: XapiValueType, type: ColumnType): string | number | undefined {
+function jsonWireValue(value: XapiValueType, type: ColumnType): string | number | boolean | undefined {
   if (value === undefined) return undefined;
   if (value instanceof Date) return dateToString(value, type as Extract<ColumnType, "DATE" | "DATETIME" | "TIME">);
   if (value instanceof Uint8Array) return uint8ArrayToBase64(value);
-  return value as string | number;
+  return value as string | number | boolean;
 }
 
 function columnsToObject(columns: Col[]): Record<string, unknown> {
@@ -98,16 +98,17 @@ function readRow(dataset: Dataset, row: NexacroJsonRow): void {
 function readJson(value: NexacroJsonRoot): XapiRoot {
   const root = new XapiRoot();
   for (const parameter of value.Parameters ?? []) {
-    root.addParameter({ id: parameter.id, type: parameter.type, value: jsonValue(parameter.value, parameter.type) });
+    const type = normalizeColumnType(parameter.type);
+    root.addParameter({ id: parameter.id, type, value: jsonValue(parameter.value, type) });
   }
   for (const source of value.Datasets ?? []) {
     const dataset = new Dataset(source.id);
     for (const column of source.ColumnInfo.ConstColumn ?? []) {
-      const type = column.type ?? "STRING";
+      const type = normalizeColumnType(column.type);
       dataset.addConstColumn({ id: column.id, type, size: sizeOf(column.size, type), value: jsonValue(column.value, type) });
     }
     for (const column of source.ColumnInfo.Column) {
-      const type = column.type ?? "STRING";
+      const type = normalizeColumnType(column.type);
       dataset.addColumn({ id: column.id, type, size: sizeOf(column.size, type) });
     }
     for (const row of source.Rows) readRow(dataset, row);

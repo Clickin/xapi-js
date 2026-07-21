@@ -73,8 +73,18 @@ export function uint8ArrayToBase64(uint8Array: Uint8Array): string {
  * @param value - The string to convert.
  * @returns A Date object if the string is a valid date/time, otherwise undefined.
  */
-export function stringToDate(value: string): Date | undefined {
+export function stringToDate(value: string, type?: ColumnType): Date | undefined {
   if (!value) return undefined;
+  const normalizedType = type ? normalizeColumnType(type) : undefined;
+  if (normalizedType === "TIME") {
+    if (value.length !== 6 && value.length !== 9) return undefined;
+    const hours = parseInt(value.substring(0, 2), 10);
+    const minutes = parseInt(value.substring(2, 4), 10);
+    const seconds = parseInt(value.substring(4, 6), 10);
+    const milliseconds = value.length === 9 ? parseInt(value.substring(6, 9), 10) : 0;
+    if ([hours, minutes, seconds, milliseconds].some(Number.isNaN) || hours > 23 || minutes > 59 || seconds > 59 || milliseconds > 999) return undefined;
+    return new Date(1970, 0, 1, hours, minutes, seconds, milliseconds);
+  }
   let year: number;
   let month: number;
   let day: number;
@@ -82,7 +92,7 @@ export function stringToDate(value: string): Date | undefined {
   let minutes: number = 0;
   let seconds: number = 0;
   let milliseconds: number = 0;
-  if (value.length < 6 || value.length > 16) {
+  if (value.length < 6 || value.length > (normalizedType ? 17 : 16)) {
     return undefined;
   }
   if (value.length >= 8) {
@@ -103,8 +113,9 @@ export function stringToDate(value: string): Date | undefined {
     minutes = parseInt(value.substring(10, 12), 10);
     seconds = parseInt(value.substring(12, 14), 10);
   }
-  if (value.length === 16) {
-    milliseconds = parseInt(value.substring(14, 16), 10);
+  if (value.length === 16 || value.length === 17) {
+    milliseconds = parseInt(value.substring(14, value.length), 10);
+    if (value.length === 16 && normalizedType) milliseconds *= 10;
   }
   if (year < 1970 || year > 9999 || month < 0 || month > 11 || day < 1 || day > 31 ||
     hours < 0 || hours > 23 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59 ||
@@ -124,7 +135,7 @@ export function stringToDate(value: string): Date | undefined {
  * @param type - The column type ("DATE", "DATETIME", or "TIME").
  * @returns A string representation of the date/time.
  */
-export function dateToString(date: Date, type: Extract<ColumnType, "DATE" | "DATETIME" | "TIME">): string {
+export function dateToString(date: Date, type: Extract<ColumnType, "DATE" | "DATETIME" | "DATE_TIME" | "TIME">): string {
   const year = date.getFullYear().toString().padStart(4, '0');
   const month = (date.getMonth() + 1).toString().padStart(2, '0');
   const day = date.getDate().toString().padStart(2, '0');
@@ -132,13 +143,13 @@ export function dateToString(date: Date, type: Extract<ColumnType, "DATE" | "DAT
   const minutes = date.getMinutes().toString().padStart(2, '0');
   const seconds = date.getSeconds().toString().padStart(2, '0');
 
-  switch (type) {
+  switch (normalizeColumnType(type)) {
     case "DATE":
       return `${year}${month}${day}`;
     case "DATETIME":
-      return `${year}${month}${day}${hours}${minutes}${seconds}`;
+      return `${year}${month}${day}${hours}${minutes}${seconds}${date.getMilliseconds() ? date.getMilliseconds().toString().padStart(3, '0') : ''}`;
     case "TIME":
-      return `${hours}${minutes}${seconds}`;
+      return `${hours}${minutes}${seconds}${date.getMilliseconds() ? date.getMilliseconds().toString().padStart(3, '0') : ''}`;
     default:
       return '';
   }
@@ -196,21 +207,30 @@ export function stringToReadableStream(str: string): ReadableStream<Uint8Array> 
  * @throws {ColumnTypeError} if the column type is unsupported.
  */
 export function convertToColumnType(value: XapiValueType, type: ColumnType): XapiValueType {
-  switch (type) {
+  const normalizedType = normalizeColumnType(type);
+  switch (normalizeColumnType(type)) {
     case "INT":
       const intValue = parseInt(value as string, 10);
       return isNaN(intValue) ? value : intValue;
     case "FLOAT":
+    case "DOUBLE":
+    case "LONG":
     case "BIGDECIMAL":
-      const floatValue = parseFloat(value as string);
+    case "BIG_DECIMAL":
+    const floatValue = parseFloat(value as string);
       return isNaN(floatValue) ? value : floatValue;
     case "DECIMAL":
       const decimalValue = parseFloat(value as string);
       return isNaN(decimalValue) ? value : decimalValue;
     case "DATE":
     case "DATETIME":
+    case "DATE_TIME":
     case "TIME":
-      return stringToDate(value as string) || value;
+      return stringToDate(value as string, normalizedType) || value;
+    case "BOOLEAN":
+      if (value === "true" || value === "1" || value === 1 || value === true) return true;
+      if (value === "false" || value === "0" || value === 0 || value === false) return false;
+      return value;
     case "BLOB":
       try {
         return base64ToUint8Array(value as string);
@@ -220,7 +240,18 @@ export function convertToColumnType(value: XapiValueType, type: ColumnType): Xap
     case "STRING":
       return value as string;
     default:
-      throw new ColumnTypeError(`Unsupported column type: ${type}`);
+      throw new ColumnTypeError(`Unsupported column type: ${normalizedType}`);
+  }
+}
+
+/** Normalizes X-API/Java type spellings to the names used by Dataset XML. */
+export function normalizeColumnType(type?: string): ColumnType {
+  const normalized = type?.replace(/[- ]/g, "_").toUpperCase();
+  switch (normalized) {
+    case "DATE_TIME": return "DATETIME";
+    case "BIG_DECIMAL": return "BIGDECIMAL";
+    case "BOOL": return "BOOLEAN";
+    default: return normalized as ColumnType || "STRING";
   }
 }
 
@@ -233,14 +264,20 @@ export function convertToColumnType(value: XapiValueType, type: ColumnType): Xap
 export function convertToString(value: XapiValueType, type: ColumnType): string {
   switch (type) {
     case "INT":
+    case "LONG":
     case "BIGDECIMAL":
+    case "BIG_DECIMAL":
     case "FLOAT":
+    case "DOUBLE":
     case "DECIMAL":
       return String(value);
+    case "BOOLEAN":
+      return value ? "true" : "false";
     case "DATE":
     case "DATETIME":
+    case "DATE_TIME":
     case "TIME":
-      return dateToString(value as Date, type);
+      return dateToString(value as Date, normalizeColumnType(type) as Extract<ColumnType, "DATE" | "DATETIME" | "TIME">);
     case "BLOB":
       return uint8ArrayToBase64(value as Uint8Array);
     case "STRING":

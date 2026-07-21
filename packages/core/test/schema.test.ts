@@ -107,4 +107,14 @@ describe("XAPI schema", () => {
       $orgRow: { id: 1, name: "old" },
     });
   });
+
+  it("uses the schema type over the server column type and keeps the wire string", () => {
+    const stringSchema = xapi.root({
+      datasets: { values: xapi.dataset({ amount: xapi.string() }) },
+    });
+    const root = parse(`<?xml version="1.0"?><Root><Dataset id="values"><ColumnInfo><Column id="amount" type="DOUBLE" size="20"/></ColumnInfo><Rows><Row><Col id="amount">67.00</Col></Row></Rows></Dataset></Root>`);
+
+    expect(root.getDataset("values")?.rows[0].cols[0]).toMatchObject({ value: 67, rawValue: "67.00" });
+    expect(decodeRoot(stringSchema, root).datasets.values[0].amount).toBe("67.00");
+  });
 });

@@ -1,7 +1,7 @@
 /**
  * Represents the possible data types for X-API values.
  */
-export type XapiValueType = string | number | Uint8Array | Date | undefined;
+export type XapiValueType = string | number | boolean | Uint8Array | Date | undefined;
 
 /**
  * Represents a column within a row of an X-API dataset.
@@ -11,6 +11,8 @@ export interface Col {
   id: string;
   /** The value of the column. */
   value?: XapiValueType;
+  /** Original wire value. XML and SSV values are strings before schema conversion. */
+  rawValue?: string;
 }
 
 /**
@@ -46,7 +48,10 @@ export interface Rows {
 /**
  * Defines the possible data types for columns in an X-API dataset.
  */
-export const columnType = ["STRING", "INT", "FLOAT", "DECIMAL", "BIGDECIMAL", "DATE", "DATETIME", "TIME", "BLOB"] as const;
+export const columnType = [
+  "STRING", "INT", "LONG", "FLOAT", "DOUBLE", "DECIMAL", "BIGDECIMAL", "BIG_DECIMAL",
+  "BOOLEAN", "DATE", "DATETIME", "DATE_TIME", "TIME", "BLOB",
+] as const;
 
 /**
  * Type representing the data type of a column.
@@ -68,7 +73,7 @@ export interface Column {
 /**
  * Represents a constant column definition, extending a regular column with a default value.
  */
-export type ConstColumn = Column & { value: XapiValueType };
+export type ConstColumn = Column & { value: XapiValueType; rawValue?: string };
 
 /**
  * Represents the column information section of an X-API dataset.
@@ -90,6 +95,8 @@ export interface Parameter {
   type?: ColumnType;
   /** The value of the parameter. */
   value?: XapiValueType;
+  /** Original wire value before conversion. */
+  rawValue?: string;
 }
 
 /**

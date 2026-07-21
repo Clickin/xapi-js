@@ -1,14 +1,20 @@
 import { Dataset, XapiRoot } from "./xapi-data";
 import { ColumnType, RowType, XapiValueType } from "./types";
+import { convertToColumnType } from "./utils";
 
 export type XapiTypeMap = {
   STRING: string;
   INT: number;
+  LONG: number;
   FLOAT: number;
+  DOUBLE: number;
   DECIMAL: number;
   BIGDECIMAL: number;
+  BIG_DECIMAL: number;
+  BOOLEAN: boolean;
   DATE: Date;
   DATETIME: Date;
+  DATE_TIME: Date;
   TIME: Date;
   BLOB: Uint8Array;
 };
@@ -90,11 +96,16 @@ export type ResponseOf<Operation extends XapiOperation> = InferRoot<Operation["r
 const defaultSizes: Record<ColumnType, number> = {
   STRING: 256,
   INT: 10,
+  LONG: 19,
   FLOAT: 20,
+  DOUBLE: 20,
   DECIMAL: 20,
   BIGDECIMAL: 30,
+  BIG_DECIMAL: 30,
+  BOOLEAN: 5,
   DATE: 8,
   DATETIME: 17,
+  DATE_TIME: 17,
   TIME: 6,
   BLOB: 1000,
 };
@@ -141,11 +152,16 @@ export function defineOperation<
 export const xapi = {
   string: <const Optional extends boolean = false>(options?: ColumnOptions<Optional>) => column("STRING", options),
   int: <const Optional extends boolean = false>(options?: ColumnOptions<Optional>) => column("INT", options),
+  long: <const Optional extends boolean = false>(options?: ColumnOptions<Optional>) => column("LONG", options),
   float: <const Optional extends boolean = false>(options?: ColumnOptions<Optional>) => column("FLOAT", options),
+  double: <const Optional extends boolean = false>(options?: ColumnOptions<Optional>) => column("DOUBLE", options),
   decimal: <const Optional extends boolean = false>(options?: ColumnOptions<Optional>) => column("DECIMAL", options),
   bigdecimal: <const Optional extends boolean = false>(options?: ColumnOptions<Optional>) => column("BIGDECIMAL", options),
+  bigDecimal: <const Optional extends boolean = false>(options?: ColumnOptions<Optional>) => column("BIG_DECIMAL", options),
+  boolean: <const Optional extends boolean = false>(options?: ColumnOptions<Optional>) => column("BOOLEAN", options),
   date: <const Optional extends boolean = false>(options?: ColumnOptions<Optional>) => column("DATE", options),
   datetime: <const Optional extends boolean = false>(options?: ColumnOptions<Optional>) => column("DATETIME", options),
+  dateTime: <const Optional extends boolean = false>(options?: ColumnOptions<Optional>) => column("DATE_TIME", options),
   time: <const Optional extends boolean = false>(options?: ColumnOptions<Optional>) => column("TIME", options),
   blob: <const Optional extends boolean = false>(options?: ColumnOptions<Optional>) => column("BLOB", options),
   dataset: defineDataset,
@@ -189,8 +205,9 @@ export function encodeRoot<Schema extends XapiRootSchema>(schema: Schema, value:
 export function decodeRoot<Schema extends XapiRootSchema>(schema: Schema, root: XapiRoot): InferRoot<Schema> {
   const parameters: Record<string, XapiValueType> = {};
   for (const id of Object.keys(schema.parameters)) {
-    const value = root.getParameter(id)?.value;
-    if (value !== undefined) parameters[id] = value;
+    const parameter = root.getParameter(id);
+    const value = parameter?.rawValue !== undefined ? parameter.rawValue : parameter?.value;
+    if (value !== undefined) parameters[id] = convertToColumnType(value, schema.parameters[id].type);
   }
 
   const datasets: Record<string, EncodedRow[]> = {};
@@ -205,10 +222,21 @@ export function decodeRoot<Schema extends XapiRootSchema>(schema: Schema, root: 
     datasets[datasetId] = dataset.getRows().map(row => {
       const value: EncodedRow = { ...constants };
       for (const column of row.cols) {
-        if (column.id in datasetSchema.columns) value[column.id] = column.value;
+        const columnSchema = datasetSchema.columns[column.id];
+        if (columnSchema) {
+          const rawValue = column.rawValue !== undefined ? column.rawValue : column.value;
+          value[column.id] = rawValue === undefined ? undefined : convertToColumnType(rawValue, columnSchema.type);
+        }
       }
       if (row.type) value.$rowType = row.type;
-      if (row.orgRow) value.$orgRow = Object.fromEntries(row.orgRow.map(column => [column.id, column.value]));
+      if (row.orgRow) {
+        value.$orgRow = Object.fromEntries(row.orgRow.flatMap(column => {
+          const columnSchema = datasetSchema.columns[column.id];
+          if (!columnSchema) return [];
+          const rawValue = column.rawValue !== undefined ? column.rawValue : column.value;
+          return [[column.id, rawValue === undefined ? undefined : convertToColumnType(rawValue, columnSchema.type)]];
+        }));
+      }
       return value;
     });
   }

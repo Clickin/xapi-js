@@ -1,5 +1,5 @@
 import { Col, ColumnType, InvalidXmlError, NexaVersion, Parameter, RowType, XapiOptions, XapiValueType } from "./types";
-import { _unescapeXml, convertToColumnType, convertToString, dateToString, parseXml, uint8ArrayToBase64, XmlNode, XmlStringBuilder } from "./utils";
+import { _unescapeXml, convertToColumnType, convertToString, dateToString, normalizeColumnType, parseXml, uint8ArrayToBase64, XmlNode, XmlStringBuilder } from "./utils";
 import { Dataset, XapiRoot } from "./xapi-data";
 
 
@@ -124,8 +124,9 @@ function parseColumnInfo(columnInfoElement: XmlNode | string | undefined, datase
         dataset.addConstColumn({
           id: attrs?.id!!,
           size: sizeStr ? parseInt(sizeStr, 10) : 0,
-          type: (attrs?.type as ColumnType) || "STRING",
+          type: normalizeColumnType(attrs?.type),
           value: parseValue(attrs?.value, attrs?.type as ColumnType),
+          rawValue: attrs?.value,
         });
       } else if (tagName === 'Column') {
         const attrs = colInfo.attributes;
@@ -133,7 +134,7 @@ function parseColumnInfo(columnInfoElement: XmlNode | string | undefined, datase
         dataset.addColumn({
           id: attrs?.id!!,
           size: sizeStr ? parseInt(sizeStr, 10) : 0,
-          type: (attrs?.type as ColumnType) || "STRING",
+          type: normalizeColumnType(attrs?.type),
         });
       }
     }
@@ -170,7 +171,7 @@ function parseRows(rowsElement: XmlNode | undefined, dataset: Dataset): void {
                 const columnInfo = dataset.getColumnInfo(colId);
                 if (!columnInfo) throw new InvalidXmlError(`Column with id ${colId} not found in dataset ${dataset.id}`);
                 const castedValue = parseValue(value, columnInfo.type as ColumnType);
-                currentRow.cols.push({ id: colId, value: castedValue });
+                currentRow.cols.push({ id: colId, value: castedValue, rawValue: value });
               } else if (colTagName === 'OrgRow') {
                 const orgRow: typeof currentRow.orgRow = [];
                 currentRow.orgRow = orgRow;
@@ -185,7 +186,7 @@ function parseRows(rowsElement: XmlNode | undefined, dataset: Dataset): void {
                       const value = orgCol.children?.[0] as string;
                       const columnInfo = dataset.getColumnInfo(colId)!!;
                       const castedValue = parseValue(value, columnInfo.type as ColumnType);
-                      orgRow.push({ id: colId, value: castedValue });
+                      orgRow.push({ id: colId, value: castedValue, rawValue: value });
                     }
                   }
                 }
@@ -217,8 +218,9 @@ function parseParameters(parametersElement: XmlNode, xapiRoot: XapiRoot): void {
       const value = (p.children?.[0] as string | undefined) ?? attrs?.value;
       xapiRoot.addParameter({
         id,
-        type,
+        type: normalizeColumnType(type),
         value: parseValue(value, type),
+        rawValue: value,
       });
     }
   }
@@ -252,7 +254,7 @@ function writeParameters(builder: XmlStringBuilder, parameters: Parameter[]): vo
     const attrs: Record<string, string> = { id: parameter.id };
 
     if (parameter.type !== undefined) {
-      attrs.type = parameter.type;
+      attrs.type = normalizeColumnType(parameter.type);
     }
 
     if (parameter.value !== undefined) {
@@ -279,7 +281,7 @@ function writeDataset(builder: XmlStringBuilder, dataset: Dataset): void {
       builder.writeStartElement("ConstColumn", {
         id: constCol.id,
         size: String(constCol.size),
-        type: constCol.type,
+        type: normalizeColumnType(constCol.type),
         value: constCol.value !== undefined ? String(constCol.value) : ""
       }, true); // self-closing
     }
@@ -287,7 +289,7 @@ function writeDataset(builder: XmlStringBuilder, dataset: Dataset): void {
       builder.writeStartElement("Column", {
         id: col.id,
         size: String(col.size),
-        type: col.type
+        type: normalizeColumnType(col.type)
       }, true); // self-closing
     }
     builder.writeEndElement("ColumnInfo");
