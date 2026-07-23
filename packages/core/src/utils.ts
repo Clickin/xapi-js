@@ -1,5 +1,6 @@
 import { ColumnType, ColumnTypeError, XapiValueType } from "./types";
 import { XapiRoot } from "./xapi-data";
+const UTF8_DECODER = new TextDecoder();
 
 /**
  * Represents an XML node in the parsed structure.
@@ -13,8 +14,7 @@ export type XmlNode = {
 // make ReadableStream to string
 // can be async
 export function arrayBufferToString(buffer: ArrayBuffer): string {
-  const decoder = new TextDecoder();
-  return decoder.decode(buffer);
+  return UTF8_DECODER.decode(buffer);
 }
 
 
@@ -82,7 +82,7 @@ export function stringToDate(value: string, type?: ColumnType): Date | undefined
     const minutes = parseInt(value.substring(2, 4), 10);
     const seconds = parseInt(value.substring(4, 6), 10);
     const milliseconds = value.length === 9 ? parseInt(value.substring(6, 9), 10) : 0;
-    if ([hours, minutes, seconds, milliseconds].some(Number.isNaN) || hours > 23 || minutes > 59 || seconds > 59 || milliseconds > 999) return undefined;
+    if (Number.isNaN(hours) || Number.isNaN(minutes) || Number.isNaN(seconds) || Number.isNaN(milliseconds) || hours > 23 || minutes > 59 || seconds > 59 || milliseconds > 999) return undefined;
     return new Date(1970, 0, 1, hours, minutes, seconds, milliseconds);
   }
   let year: number;
@@ -287,40 +287,29 @@ export function convertToString(value: XapiValueType, type: ColumnType): string 
   }
 }
 
-/**
- * Pre-compiled regex for control character entities.
- * Created once to avoid repeated compilation.
- */
-const CONTROL_CHAR_ENTITY_REGEX = new RegExp(
-  PARSE_ENTITIES.map(e => e.entity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),
-  'g'
-);
-
-/**
- * Map for fast entity lookup during decoding.
- */
-const ENTITY_MAP = new Map<string, string>(
-  PARSE_ENTITIES.map(e => [e.entity, e.value])
-);
-
 export function _unescapeXml(str?: string): string | undefined {
-  if (!str) return str;
-
-  // Early exit if no entities present
-  if (str.indexOf('&') === -1) return str;
-
-  // First handle standard XML entities
-  let result = str
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, '&'); // &amp; must be last to avoid double-decoding
-
-  // Then handle control character entities using pre-compiled regex and map
-  result = result.replace(CONTROL_CHAR_ENTITY_REGEX, match => ENTITY_MAP.get(match)!);
-
-  return result;
+  if (!str || str.indexOf("&") === -1) return str;
+  let output = "";
+  let position = 0;
+  while (position < str.length) {
+    const ampersand = str.indexOf("&", position);
+    if (ampersand < 0) return output + str.slice(position);
+    output += str.slice(position, ampersand);
+    const semicolon = str.indexOf(";", ampersand + 1);
+    if (semicolon < 0) return output + str.slice(ampersand);
+    const entity = str.slice(ampersand, semicolon + 1);
+    if (entity === "&lt;") output += "<";
+    else if (entity === "&gt;") output += ">";
+    else if (entity === "&quot;") output += '"';
+    else if (entity === "&apos;") output += "'";
+    else if (entity === "&amp;") output += "&";
+    else if (entity.startsWith("&#") && entity[2] !== "x" && entity[2] !== "X") {
+      const code = Number.parseInt(entity.slice(2, -1), 10);
+      output += code >= 1 && code <= 32 ? String.fromCharCode(code) : entity;
+    } else output += entity;
+    position = semicolon + 1;
+  }
+  return output;
 }
 
 export function isXapiRoot(value: unknown): value is XapiRoot {
@@ -333,12 +322,17 @@ export function isXapiRoot(value: unknown): value is XapiRoot {
  * @returns The escaped string.
  */
 export function escapeXml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+  let output = "";
+  for (let index = 0; index < str.length; index++) {
+    const character = str[index];
+    if (character === "&") output += "&amp;";
+    else if (character === "<") output += "&lt;";
+    else if (character === ">") output += "&gt;";
+    else if (character === '"') output += "&quot;";
+    else if (character === "'") output += "&apos;";
+    else output += character;
+  }
+  return output;
 }
 
 /**
@@ -386,12 +380,16 @@ export class XmlStringBuilder {
    * @param attributes - Optional attributes object.
    * @param selfClosing - Whether to create a self-closing tag.
    */
-  writeStartElement(name: string, attributes?: Record<string, string>, selfClosing?: boolean): void {
+  writeStartElement(name: string, attributes?: Record<string, string | undefined>, selfClosing?: boolean): void {
     const indent = this.indentString.repeat(this.indentLevel);
     let tag = `${indent}<${name}`;
 
     if (attributes) {
-      for (const [key, value] of Object.entries(attributes)) {
+      const keys = Object.keys(attributes);
+      for (let index = 0; index < keys.length; index++) {
+        const key = keys[index];
+        const value = attributes[key];
+        if (value === undefined) continue;
         const encodedValue = encodeControlChars(escapeXml(value));
         tag += ` ${key}="${encodedValue}"`;
       }
@@ -423,12 +421,16 @@ export class XmlStringBuilder {
    * @param attributes - Optional attributes object.
    * @param text - The text content.
    */
-  writeElementWithText(name: string, attributes: Record<string, string> | undefined, text: string): void {
+  writeElementWithText(name: string, attributes: Record<string, string | undefined> | undefined, text: string): void {
     const indent = this.indentString.repeat(this.indentLevel);
     let tag = `${indent}<${name}`;
 
     if (attributes) {
-      for (const [key, value] of Object.entries(attributes)) {
+      const keys = Object.keys(attributes);
+      for (let index = 0; index < keys.length; index++) {
+        const key = keys[index];
+        const value = attributes[key];
+        if (value === undefined) continue;
         const encodedValue = encodeControlChars(escapeXml(value));
         tag += ` ${key}="${encodedValue}"`;
       }

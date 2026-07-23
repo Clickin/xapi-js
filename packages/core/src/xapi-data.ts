@@ -33,7 +33,10 @@ export class XapiRoot {
    * @returns The Dataset object, or undefined if not found.
    */
   getDataset(id: string): Dataset | undefined {
-    return this.datasets.find(dataset => dataset.id === id);
+    for (let index = 0; index < this.datasets.length; index++) {
+      if (this.datasets[index].id === id) return this.datasets[index];
+    }
+    return undefined;
   }
 
   /**
@@ -50,7 +53,11 @@ export class XapiRoot {
    * @returns The Parameter object, or undefined if not found.
    */
   getParameter(id: string): Parameter | undefined {
-    return this.parameters.params.find(param => param.id === id);
+    const parameters = this.parameters.params;
+    for (let index = 0; index < parameters.length; index++) {
+      if (parameters[index].id === id) return parameters[index];
+    }
+    return undefined;
   }
 
   /**
@@ -67,12 +74,14 @@ export class XapiRoot {
    * @param value - The value to set for the parameter.
    */
   setParameter(id: string, value: XapiValueType): void {
-    const param = this.parameters.params.find(p => p.id === id);
-    if (param) {
-      param.value = value;
-    } else {
-      this.addParameter({ id, value });
+    const parameters = this.parameters.params;
+    for (let index = 0; index < parameters.length; index++) {
+      if (parameters[index].id === id) {
+        parameters[index].value = value;
+        return;
+      }
     }
+    this.addParameter({ id, type: undefined, value, rawValue: undefined });
   }
 
   /**
@@ -132,6 +141,7 @@ export class Dataset {
     this.constColumns = constColumns;
     this.columns = columns;
     this.rows = rows;
+    for (let index = 0; index < columns.length; index++) this._columnIndexMap.set(columns[index].id, index);
   }
 
   /**
@@ -156,7 +166,7 @@ export class Dataset {
    * @returns The index of the newly created row.
    */
   newRow(): number {
-    this.rows.push({ cols: [] });
+    this.rows.push({ cols: [], type: undefined, orgRow: undefined });
     return this.rows.length - 1;
   }
 
@@ -196,7 +206,10 @@ export class Dataset {
    * @returns The ConstColumn object, or undefined if not found.
    */
   getConstColumnInfo(columnId: string): ConstColumn | undefined {
-    return this.constColumns.find(col => col.id === columnId);
+    for (let index = 0; index < this.constColumns.length; index++) {
+      if (this.constColumns[index].id === columnId) return this.constColumns[index];
+    }
+    return undefined;
   }
 
   /**
@@ -250,7 +263,7 @@ export class Dataset {
       if (colIndex === undefined) {
         throw new Error(`Column with id ${columnId} not found in dataset ${this.id}`);
       }
-      this.rows[rowIdx].cols[colIndex] = { id: columnId, value };
+      this.rows[rowIdx].cols[colIndex] = { id: columnId, value, rawValue: undefined };
     } else {
       throw new Error(`Row index ${rowIdx} out of bounds in dataset ${this.id}`);
     }

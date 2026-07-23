@@ -2,7 +2,6 @@ import { Dataset, XapiRoot } from "./xapi-data";
 import { Col, ColumnType, RowType, XapiValueType } from "./types";
 import { convertToColumnType, dateToString, normalizeColumnType, uint8ArrayToBase64 } from "./utils";
 
-/** The wire representation used by Nexacro's Dataset JSON format. */
 export interface NexacroJsonParameter {
   id: string;
   type?: ColumnType;
@@ -23,10 +22,7 @@ export interface NexacroJsonRow {
 
 export interface NexacroJsonDataset {
   id: string;
-  ColumnInfo: {
-    ConstColumn?: NexacroJsonColumn[];
-    Column: NexacroJsonColumn[];
-  };
+  ColumnInfo: { ConstColumn?: NexacroJsonColumn[]; Column: NexacroJsonColumn[] };
   Rows: NexacroJsonRow[];
 }
 
@@ -36,18 +32,13 @@ export interface NexacroJsonRoot {
   Datasets?: NexacroJsonDataset[];
 }
 
-/** A serializer boundary around the X-API internal model. */
 export interface XapiCodec<Serialized> {
   serialize(root: XapiRoot): Serialized;
   deserialize(value: Serialized): XapiRoot;
 }
 
 const rowTypes: Record<NonNullable<NexacroJsonRow["_RowType_"]>, RowType | undefined> = {
-  N: undefined,
-  I: "insert",
-  U: "update",
-  D: "delete",
-  O: undefined,
+  N: undefined, I: "insert", U: "update", D: "delete", O: undefined,
 };
 
 function sizeOf(size: number | string | undefined, type: ColumnType): number {
@@ -71,87 +62,119 @@ function jsonWireValue(value: XapiValueType, type: ColumnType): string | number 
   return value as string | number | boolean;
 }
 
-function columnsToObject(columns: Col[]): Record<string, unknown> {
-  return Object.fromEntries(columns.map(column => [column.id, column.value]));
+function columnsToObject(columns: Col[], type: NonNullable<NexacroJsonRow["_RowType_"]>): NexacroJsonRow {
+  const result: NexacroJsonRow = { _RowType_: type };
+  for (let index = 0; index < columns.length; index++) result[columns[index].id] = columns[index].value;
+  return result;
 }
 
 function readRow(dataset: Dataset, row: NexacroJsonRow): void {
   const rowType = rowTypes[row._RowType_ ?? "N"];
+  const columns = dataset.getColumns();
   if (row._RowType_ === "O") {
     const previous = dataset.rows[dataset.rows.length - 1];
     if (previous?.type !== "update") return;
-    previous.orgRow = dataset.getColumns()
-      .filter(column => Object.prototype.hasOwnProperty.call(row, column.id))
-      .map(column => ({ id: column.id, value: jsonValue(row[column.id], column.type), rawValue: jsonRawValue(row[column.id]) }));
+    const original: Col[] = [];
+    for (let index = 0; index < columns.length; index++) {
+      const column = columns[index];
+      if (Object.prototype.hasOwnProperty.call(row, column.id)) original.push({ id: column.id, value: jsonValue(row[column.id], column.type), rawValue: jsonRawValue(row[column.id]) });
+    }
+    previous.orgRow = original;
     return;
   }
-
-  const index = dataset.newRow();
-  dataset.rows[index].type = rowType;
-  for (const column of dataset.getColumns()) {
-    if (Object.prototype.hasOwnProperty.call(row, column.id)) {
-      dataset.rows[index].cols.push({ id: column.id, value: jsonValue(row[column.id], column.type), rawValue: jsonRawValue(row[column.id]) });
-    }
+  const rowIndex = dataset.newRow();
+  dataset.rows[rowIndex].type = rowType;
+  for (let index = 0; index < columns.length; index++) {
+    const column = columns[index];
+    if (Object.prototype.hasOwnProperty.call(row, column.id)) dataset.rows[rowIndex].cols.push({ id: column.id, value: jsonValue(row[column.id], column.type), rawValue: jsonRawValue(row[column.id]) });
   }
 }
 
 function readJson(value: NexacroJsonRoot): XapiRoot {
   const root = new XapiRoot();
-  for (const parameter of value.Parameters ?? []) {
-    const type = normalizeColumnType(parameter.type);
-    root.addParameter({ id: parameter.id, type, value: jsonValue(parameter.value, type), rawValue: jsonRawValue(parameter.value) });
-  }
-  for (const source of value.Datasets ?? []) {
-    const dataset = new Dataset(source.id);
-    for (const column of source.ColumnInfo.ConstColumn ?? []) {
-      const type = normalizeColumnType(column.type);
-      dataset.addConstColumn({ id: column.id, type, size: sizeOf(column.size, type), value: jsonValue(column.value, type), rawValue: jsonRawValue(column.value) });
+  const parameters = value.Parameters;
+  if (parameters) {
+    for (let index = 0; index < parameters.length; index++) {
+      const parameter = parameters[index];
+      const type = normalizeColumnType(parameter.type);
+      root.addParameter({ id: parameter.id, type, value: jsonValue(parameter.value, type), rawValue: jsonRawValue(parameter.value) });
     }
-    for (const column of source.ColumnInfo.Column) {
+  }
+  const datasets = value.Datasets;
+  if (!datasets) return root;
+  for (let datasetIndex = 0; datasetIndex < datasets.length; datasetIndex++) {
+    const source = datasets[datasetIndex];
+    const dataset = new Dataset(source.id);
+    const constants = source.ColumnInfo.ConstColumn;
+    if (constants) {
+      for (let index = 0; index < constants.length; index++) {
+        const column = constants[index];
+        const type = normalizeColumnType(column.type);
+        dataset.addConstColumn({ id: column.id, type, size: sizeOf(column.size, type), value: jsonValue(column.value, type), rawValue: jsonRawValue(column.value) });
+      }
+    }
+    const columns = source.ColumnInfo.Column;
+    for (let index = 0; index < columns.length; index++) {
+      const column = columns[index];
       const type = normalizeColumnType(column.type);
       dataset.addColumn({ id: column.id, type, size: sizeOf(column.size, type) });
     }
-    for (const row of source.Rows) readRow(dataset, row);
+    for (let index = 0; index < source.Rows.length; index++) readRow(dataset, source.Rows[index]);
     root.addDataset(dataset);
   }
   return root;
 }
 
 function writeJson(root: XapiRoot): NexacroJsonRoot {
-  return {
-    version: "1.0",
-    ...(root.parameterSize() ? { Parameters: root.getParameters().map(parameter => ({
-      id: parameter.id,
-      ...(parameter.type ? { type: parameter.type } : {}),
-      ...(parameter.value !== undefined ? { value: jsonWireValue(parameter.value, parameter.type ?? "STRING") } : {}),
-    })) } : {}),
-    ...(root.datasetSize() ? { Datasets: root.getDatasets().map(dataset => ({
-      id: dataset.id,
-      ColumnInfo: {
-        ...(dataset.constColumnSize() ? { ConstColumn: dataset.getConstColumns().map(column => ({
-          id: column.id, type: column.type, size: column.size, value: jsonWireValue(column.value, column.type),
-        })) } : {}),
-        Column: dataset.getColumns().map(column => ({ id: column.id, type: column.type, size: column.size })),
-      },
-      Rows: dataset.getRows().flatMap(row => {
-        const type = row.type === "insert" ? "I" : row.type === "update" ? "U" : row.type === "delete" ? "D" : "N";
-        const current: NexacroJsonRow = { _RowType_: type, ...columnsToObject(row.cols) };
-        if (!row.orgRow) return [current];
-        return [current, { _RowType_: "O" as const, ...columnsToObject(row.orgRow) }];
-      }),
-    })) } : {}),
-  };
+  const result: NexacroJsonRoot = { version: "1.0", Parameters: undefined, Datasets: undefined };
+  const sourceParameters = root.getParameters();
+  if (sourceParameters.length) {
+    const parameters: NexacroJsonParameter[] = new Array(sourceParameters.length);
+    for (let index = 0; index < sourceParameters.length; index++) {
+      const source = sourceParameters[index];
+      parameters[index] = {
+        id: source.id,
+        type: source.type || undefined,
+        value: source.value !== undefined ? jsonWireValue(source.value, source.type ?? "STRING") : undefined,
+      };
+    }
+    result.Parameters = parameters;
+  }
+  const sourceDatasets = root.getDatasets();
+  if (!sourceDatasets.length) return result;
+  const datasets: NexacroJsonDataset[] = new Array(sourceDatasets.length);
+  for (let datasetIndex = 0; datasetIndex < sourceDatasets.length; datasetIndex++) {
+    const source = sourceDatasets[datasetIndex];
+    const sourceColumns = source.getColumns();
+    const columns: NexacroJsonColumn[] = new Array(sourceColumns.length);
+    for (let index = 0; index < sourceColumns.length; index++) {
+      const column = sourceColumns[index];
+      columns[index] = { id: column.id, type: column.type, size: column.size, value: undefined };
+    }
+    const sourceConstants = source.getConstColumns();
+    let constants: NexacroJsonColumn[] | undefined;
+    if (sourceConstants.length) {
+      constants = new Array(sourceConstants.length);
+      for (let index = 0; index < sourceConstants.length; index++) {
+        const column = sourceConstants[index];
+        constants[index] = { id: column.id, type: column.type, size: column.size, value: jsonWireValue(column.value, column.type) };
+      }
+    }
+    const columnInfo: NexacroJsonDataset["ColumnInfo"] = { ConstColumn: constants, Column: columns };
+    const rows: NexacroJsonRow[] = [];
+    const sourceRows = source.getRows();
+    for (let index = 0; index < sourceRows.length; index++) {
+      const row = sourceRows[index];
+      const type = row.type === "insert" ? "I" : row.type === "update" ? "U" : row.type === "delete" ? "D" : "N";
+      rows.push(columnsToObject(row.cols, type));
+      if (row.orgRow) rows.push(columnsToObject(row.orgRow, "O"));
+      }
+    datasets[datasetIndex] = { id: source.id, ColumnInfo: columnInfo, Rows: rows };
+  }
+  result.Datasets = datasets;
+  return result;
 }
 
-export const nexacroJsonCodec: XapiCodec<NexacroJsonRoot> = {
-  serialize: writeJson,
-  deserialize: readJson,
-};
-
-export function parseJson(value: string): XapiRoot {
-  return nexacroJsonCodec.deserialize(JSON.parse(value) as NexacroJsonRoot);
-}
-
-export function writeJsonString(root: XapiRoot): string {
-  return JSON.stringify(nexacroJsonCodec.serialize(root));
-}
+export const nexacroJsonCodec: XapiCodec<NexacroJsonRoot> = { serialize: writeJson, deserialize: readJson };
+export function parseJson(value: string): XapiRoot { return nexacroJsonCodec.deserialize(JSON.parse(value) as NexacroJsonRoot); }
+export function writeJsonString(root: XapiRoot): string { return JSON.stringify(nexacroJsonCodec.serialize(root)); }
