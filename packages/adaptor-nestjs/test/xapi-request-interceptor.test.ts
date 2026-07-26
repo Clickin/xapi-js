@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { of, firstValueFrom } from 'rxjs';
 import { XapiRequestInterceptor } from '../src/xapi-request-interceptor';
 import { CallHandler, ExecutionContext } from '@nestjs/common';
-import { XapiRoot, xapi } from '@xapi-js/core';
+import { encodeRoot, encodeXapiWire, XapiRoot, xapi } from '@xapi-js/core';
 
 describe('XapiRequestInterceptor', () => {
   let interceptor: XapiRequestInterceptor;
@@ -121,6 +121,21 @@ describe('XapiRequestInterceptor', () => {
     };
     const context = { switchToHttp: () => ({ getRequest: () => request }) } as ExecutionContext;
     await schemaInterceptor.intercept(context, { handle: () => of({}) } as CallHandler);
+    expect(request.body).toEqual({ parameters: {}, datasets: { test: [{ id: 7 }] } });
+  });
+
+  it('should decode a configured JSON wire codec', async () => {
+    const schema = xapi.root({ datasets: { test: xapi.dataset({ id: xapi.int() }) } });
+    const root = encodeRoot(schema, { parameters: {}, datasets: { test: [{ id: 7 }] } });
+    const request = {
+      body: encodeXapiWire(root, 'nexacro-json-1.0'),
+      headers: { 'content-type': 'application/json' },
+    };
+    const context = { switchToHttp: () => ({ getRequest: () => request }) } as ExecutionContext;
+    const interceptor = new XapiRequestInterceptor(schema, { codec: 'nexacro-json-1.0' });
+
+    await interceptor.intercept(context, { handle: () => of({}) } as CallHandler);
+
     expect(request.body).toEqual({ parameters: {}, datasets: { test: [{ id: 7 }] } });
   });
 });

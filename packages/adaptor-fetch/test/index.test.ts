@@ -1,4 +1,4 @@
-import { XapiRoot, xapi } from '@xapi-js/core';
+import { decodeWire, encodeRoot, encodeXapiWire, XapiRoot, xapi } from '@xapi-js/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import createFetchMock from 'vitest-fetch-mock';
 import { xapiFetch } from '../src';
@@ -116,5 +116,30 @@ describe('xapiFetch', () => {
 
     expect(response.datasets.output).toEqual([{ id: 1, amount: 12.5 }]);
     expect(fetchMock.mock.calls[0][1]?.body).toContain('type="INT"');
+  });
+
+  it('should use the operation codec for JSON wire requests and responses', async () => {
+    const operation = xapi.operation({
+      request: xapi.root({ datasets: { input: xapi.dataset({ id: xapi.int() }) } }),
+      response: xapi.root({ datasets: { output: xapi.dataset({ id: xapi.int(), name: xapi.string() }) } }),
+      codec: 'nexacro-json-1.0',
+    });
+    const responseRoot = encodeRoot(operation.response, {
+      parameters: {},
+      datasets: { output: [{ id: 1, name: 'alice' }] },
+    });
+    fetchMock.mockResponseOnce(new TextDecoder().decode(encodeXapiWire(responseRoot, operation.codec)));
+
+    const response = await xapiFetch('http://localhost:3000/xapi/json', operation, {
+      parameters: {},
+      datasets: { input: [{ id: 1 }] },
+    });
+
+    expect(response.datasets.output).toEqual([{ id: 1, name: 'alice' }]);
+    const request = fetchMock.mock.calls[0][1];
+    expect(request?.headers).toEqual(expect.objectContaining({ 'Content-Type': 'application/json' }));
+    expect(request?.body).toBeInstanceOf(Uint8Array);
+    const requestValue = decodeWire(request?.body as Uint8Array, 'nexacro-json-1.0');
+    expect(requestValue.datasets[0].id).toBe('input');
   });
 });

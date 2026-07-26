@@ -1,5 +1,6 @@
 import { Dataset, XapiRoot } from "./xapi-data";
 import { ColumnType, RowType, XapiValueType } from "./types";
+import type { XapiCodecSelection } from "./wire-types";
 import { convertToColumnType } from "./utils";
 
 export type XapiTypeMap = {
@@ -43,7 +44,6 @@ export interface XapiRootSchema<
   readonly datasets: Datasets;
   readonly parameters: Parameters;
 }
-
 export interface XapiOperation<
   Request extends XapiRootSchema = XapiRootSchema,
   Response extends XapiRootSchema = XapiRootSchema,
@@ -51,6 +51,7 @@ export interface XapiOperation<
   readonly kind: "xapi-operation";
   readonly request: Request;
   readonly response: Response;
+  readonly codec?: XapiCodecSelection;
 }
 
 type RequiredColumnKeys<Columns extends XapiColumns> = {
@@ -185,12 +186,16 @@ export function defineRoot<
     parameters: definition.parameters ?? ({} as Parameters),
   };
 }
-
 export function defineOperation<
   const Request extends XapiRootSchema,
   const Response extends XapiRootSchema,
->(definition: { request: Request; response: Response }): XapiOperation<Request, Response> {
-  return { kind: "xapi-operation", request: definition.request, response: definition.response };
+>(definition: { request: Request; response: Response; codec?: XapiCodecSelection }): XapiOperation<Request, Response> {
+  return {
+    kind: "xapi-operation",
+    request: definition.request,
+    response: definition.response,
+    codec: definition.codec,
+  };
 }
 
 export const xapi = {

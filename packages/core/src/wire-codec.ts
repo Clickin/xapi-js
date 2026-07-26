@@ -29,7 +29,7 @@ export function encodeWire(value: CanonicalValue, profile: WireProfile, options:
   if (profile === "nexacro-binary-5000" || profile === "xplatform-binary-5000") bytes = encodeBinaryWire(value, profile);
   else if (profile === "nexacro-ssv" || profile === "xplatform-ssv") bytes = encodeSsvWire(value, profile);
   else {
-    const text = profile === "nexacro-json-1.0" ? encodeJsonWire(value) : encodeXmlWire(value, profile);
+    const text = profile === "nexacro-json-1.0" ? encodeJsonWire(value, options) : encodeXmlWire(value, profile);
     bytes = new TextEncoder().encode(text);
   }
   if (!options.zlib) return bytes;

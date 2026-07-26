@@ -1,58 +1,63 @@
 import {
   decodeRoot,
+  decodeXapiWire,
   encodeRoot,
+  encodeXapiWire,
   parse,
   RequestOf,
   ResponseOf,
+  type XapiAdapterOptions,
   write,
   XapiOperation,
   XapiRoot,
+  xapiBodyToBytes,
+  xapiContentType,
+  xapiContentTypeMatches,
 } from '@xapi-js/core';
 import { NextFunction, Request, Response } from 'express';
 
-/**
- * Type definition for an X-API Express handler function.
- * This function receives an XapiRoot object (parsed from the request body) and should return a Promise resolving to an XapiRoot object (for the response).
- */
 type XapiExpressHandler = (xapi: XapiRoot) => Promise<XapiRoot>;
 type XapiOperationHandler<Operation extends XapiOperation> = (
   request: RequestOf<Operation>,
 ) => ResponseOf<Operation> | Promise<ResponseOf<Operation>>;
+export type XapiExpressOptions = XapiAdapterOptions;
+export type XapiExpressMiddleware = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => Promise<unknown>;
 
-/**
- * Express middleware to handle X-API XML requests and responses.
- * It parses incoming XML into an XapiRoot object, passes it to the provided handler function,
- * and then serializes the handler's XapiRoot response back into XML.
- *
- * @param handler - An asynchronous function that takes an XapiRoot object and returns a Promise of an XapiRoot object.
- * @returns An Express middleware function.
- */
-export function xapiExpress(handler: XapiExpressHandler): ReturnType<typeof createMiddleware>;
+export function xapiExpress(handler: XapiExpressHandler, options?: XapiExpressOptions): XapiExpressMiddleware;
 export function xapiExpress<Operation extends XapiOperation>(
   operation: Operation,
   handler: XapiOperationHandler<Operation>,
-): ReturnType<typeof createMiddleware>;
+  options?: XapiExpressOptions,
+): XapiExpressMiddleware;
 export function xapiExpress(
   operationOrHandler: XapiOperation | XapiExpressHandler,
-  operationHandler?: XapiOperationHandler<XapiOperation>,
-) {
+  operationHandlerOrOptions?: XapiOperationHandler<XapiOperation> | XapiExpressOptions,
+  adapterOptions?: XapiExpressOptions,
+): XapiExpressMiddleware {
   const operation = typeof operationOrHandler === 'function' ? undefined : operationOrHandler;
-  const handler = typeof operationOrHandler === 'function' ? operationOrHandler : operationHandler!!;
+  const handler = typeof operationOrHandler === 'function' ? operationOrHandler : operationHandlerOrOptions as XapiOperationHandler<XapiOperation>;
+  const options = typeof operationOrHandler === 'function' ? operationHandlerOrOptions as XapiExpressOptions | undefined : adapterOptions;
   return createMiddleware(async (req, res, next) => {
-    if (!req.headers['content-type']?.startsWith('application/xml')) {
-      return next();
-    }
+    const codec = operation?.codec ?? options?.codec;
+    const contentType = codec === undefined ? 'application/xml' : xapiContentType(codec);
+    if (!xapiContentTypeMatches(req.headers['content-type'], codec)) return next();
 
     try {
-      const requestRoot = parse(req.body);
+      const requestRoot = codec === undefined
+        ? parse(req.body)
+        : decodeXapiWire(xapiBodyToBytes(req.body), codec);
       const request = operation ? decodeRoot(operation.request, requestRoot) : requestRoot;
       const response = await handler(request as never);
       const responseRoot = operation
         ? encodeRoot(operation.response, response as ResponseOf<typeof operation>)
         : response as XapiRoot;
-      const xml = write(responseRoot);
-      res.setHeader('Content-Type', 'application/xml');
-      res.write(xml);
+      const output = codec === undefined ? write(responseRoot) : encodeXapiWire(responseRoot, codec);
+      res.setHeader('Content-Type', contentType);
+      res.write(output);
       res.end();
     } catch (error) {
       next(error);
@@ -62,8 +67,6 @@ export function xapiExpress(
 
 function createMiddleware(
   middleware: (req: Request, res: Response, next: NextFunction) => Promise<unknown>,
-) {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    return middleware(req, res, next);
-  };
+): XapiExpressMiddleware {
+  return async (req: Request, res: Response, next: NextFunction) => middleware(req, res, next);
 }

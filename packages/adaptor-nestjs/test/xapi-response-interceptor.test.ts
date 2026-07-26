@@ -1,5 +1,5 @@
 import { CallHandler, ExecutionContext } from '@nestjs/common';
-import { Dataset, write, XapiRoot, xapi } from '@xapi-js/core';
+import { decodeXapiWire, Dataset, write, XapiRoot, xapi } from '@xapi-js/core';
 import { firstValueFrom, of } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 import { XapiResponseInterceptor } from '../src/xapi-response-interceptor';
@@ -122,5 +122,17 @@ describe('XapiResponseInterceptor', () => {
     const result = await firstValueFrom(schemaInterceptor.intercept({} as ExecutionContext, callHandler));
     expect(result).toContain('<Column id="id" size="10" type="INT"');
     expect(result).toContain('<Col id="id">7</Col>');
+  });
+
+  it('should encode a configured JSON wire codec', async () => {
+    const schema = xapi.root({ datasets: { output: xapi.dataset({ id: xapi.int() }) } });
+    const interceptor = new XapiResponseInterceptor(schema, { codec: 'nexacro-json-1.0' });
+    const result = await firstValueFrom(interceptor.intercept({} as ExecutionContext, {
+      handle: () => of({ parameters: {}, datasets: { output: [{ id: 7 }] } }),
+    } as CallHandler));
+
+    expect(result).toBeInstanceOf(Uint8Array);
+    const root = decodeXapiWire(result as Uint8Array, 'nexacro-json-1.0');
+    expect(root.getDataset('output')?.getColumn(0, 'id')).toBe(7);
   });
 });

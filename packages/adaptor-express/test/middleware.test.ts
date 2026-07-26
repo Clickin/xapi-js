@@ -1,4 +1,4 @@
-import { encodeRoot, write, XapiRoot, xapi } from '@xapi-js/core';
+import { decodeXapiWire, encodeRoot, encodeXapiWire, parse, write, XapiRoot, xapi, xapiBodyToBytes } from '@xapi-js/core';
 import { NextFunction } from 'express';
 import { createRequest, createResponse } from 'node-mocks-http';
 import { describe, expect, it, vi } from 'vitest';
@@ -121,5 +121,30 @@ describe('xapiExpress middleware', () => {
 
     expect(handler).toHaveBeenCalled();
     expect(response._getData()).toContain('<Col id="name">user-1</Col>');
+  });
+
+  it('should use the operation codec for JSON wire requests and responses', async () => {
+    const operation = xapi.operation({
+      request: xapi.root({ datasets: { input: xapi.dataset({ id: xapi.int() }) } }),
+      response: xapi.root({ datasets: { output: xapi.dataset({ name: xapi.string() }) } }),
+      codec: 'nexacro-json-1.0',
+    });
+    const requestBody = encodeXapiWire(encodeRoot(operation.request, {
+      parameters: {},
+      datasets: { input: [{ id: 1 }] },
+    }), operation.codec);
+    const request = createRequest({ body: requestBody, headers: { 'content-type': 'application/json' } });
+    const response = createResponse();
+    const handler = vi.fn(async () => ({
+      parameters: {},
+      datasets: { output: [{ name: 'alice' }] },
+    }));
+
+    await xapiExpress(operation, handler)(request, response, next);
+
+    expect(handler).toHaveBeenCalled();
+    expect(response.getHeader('Content-Type')).toBe('application/json');
+    const responseValue = decodeXapiWire(xapiBodyToBytes(response._getData()), operation.codec);
+    expect(responseValue.getDataset('output')?.getColumn(0, 'name')).toBe('alice');
   });
 });

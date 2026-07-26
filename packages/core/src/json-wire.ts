@@ -76,6 +76,7 @@ class LexicalJsonParser {
       const key = this.readString();
       this.skipWhitespace();
       if (this.source[this.position++] !== ":") throw new Error("object key must be followed by colon");
+      if (Object.prototype.hasOwnProperty.call(value, key)) throw new Error(`duplicate JSON key ${JSON.stringify(key)}`);
       value[key] = this.readValue();
       this.skipWhitespace();
       const separator = this.source[this.position++];
@@ -245,6 +246,14 @@ export function decodeJsonWire(source: string, options: WireCodecOptions = {}): 
             }
             if (rawType === "O") {
               if (!dataset.rows.length) throw new Error("orphan original row");
+              if (options.preserveRowState) {
+                const originalValues: Record<string, CanonicalCell> = {};
+                for (let columnIndex = 0; columnIndex < dataset.columns.length; columnIndex++) {
+                  const column = dataset.columns[columnIndex];
+                  originalValues[column.id] = typedCell(sourceRow[column.id], column.id in sourceRow, column.type);
+                }
+                dataset.rows[dataset.rows.length - 1].orgRow = { type: "O", orgRow: null, values: originalValues };
+              }
               continue;
             }
             const values: Record<string, CanonicalCell> = {};
@@ -342,7 +351,7 @@ function jsonCell(cell: CanonicalCell): string | undefined {
   return cell.lexical || "";
 }
 
-function datasetObject(dataset: CanonicalDataset): JavaObject {
+function datasetObject(dataset: CanonicalDataset, options: WireCodecOptions): JavaObject {
   const entries: JavaEntry[] = [["id", dataset.id]];
   const info: JavaEntry[] = [];
   if (dataset.constColumns.length) {
@@ -375,14 +384,24 @@ function datasetObject(dataset: CanonicalDataset): JavaObject {
         if (value !== undefined) values.push([column.id, value]);
         else if (defaultType(column.type) === "BOOLEAN") values.push([column.id, "0"]);
       }
-      values.push(["_RowType_", "N"]);
+      values.push(["_RowType_", options.preserveRowState ? row.type : "N"]);
       rows.push(javaObject(values));
+      if (options.preserveRowState && row.orgRow) {
+        const originalValues: JavaEntry[] = [];
+        for (let columnIndex = 0; columnIndex < dataset.columns.length; columnIndex++) {
+          const column = dataset.columns[columnIndex];
+          const value = row.orgRow.values[column.id] && jsonCell(row.orgRow.values[column.id]);
+          if (value !== undefined) originalValues.push([column.id, value]);
+        }
+        originalValues.push(["_RowType_", "O"]);
+        rows.push(javaObject(originalValues));
+      }
     }
     entries.push(["Rows", rows]);
   }
   return javaObject(entries);
 }
-export function encodeJsonWire(source: CanonicalValue): string {
+export function encodeJsonWire(source: CanonicalValue, options: WireCodecOptions = {}): string {
   validateCanonical(source);
   const value = normalizeForEncode(source);
   const entries: JavaEntry[] = [["version", "1.0"]];
@@ -399,7 +418,7 @@ export function encodeJsonWire(source: CanonicalValue): string {
   }
   if (value.datasets.length) {
     const datasets = new Array<JavaValue>(value.datasets.length);
-    for (let index = 0; index < value.datasets.length; index++) datasets[index] = datasetObject(value.datasets[index]);
+    for (let index = 0; index < value.datasets.length; index++) datasets[index] = datasetObject(value.datasets[index], options);
     entries.push(["Datasets", datasets]);
   }
   return serializeJava(javaObject(entries));

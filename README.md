@@ -4,7 +4,7 @@ Nexacro Platform과 XPlatform의 X-API 통신을 위한 TypeScript 라이브러�
 
 XML만 지원하는 단순 파서에 그치지 않고, X-API 호환 wire profile을 선택해 JSON, XML, SSV, Binary 형식으로 인코딩·디코딩할 수 있습니다. 필요하면 동일한 wire 데이터에 zlib transport 압축도 적용할 수 있습니다.
 
-> 현재 제공되는 HTTP 어댑터(`fetch`, `express`, `nestjs`, `hono`)는 기존 호환성을 위해 XML 경로를 사용합니다. JSON·SSV·Binary 및 zlib transport는 `@xapi-js/core`의 `encodeWire`/`decodeWire` API로 직접 선택합니다.
+> HTTP 어댑터의 기본 codec은 기존 동작과 동일한 Nexacro XML입니다. operation의 `codec` 또는 어댑터 옵션에 다른 profile을 지정하면 JSON, SSV, Binary, zlib transport까지 같은 타입 안전한 흐름으로 처리합니다.
 
 ## 주요 기능
 
@@ -43,8 +43,8 @@ xapi-js에는 목적이 다른 두 API 계층이 있습니다.
 ```mermaid
 flowchart LR
   A[plain object] -->|encodeRoot| B[XapiRoot]
-  B -->|write / XML 어댑터| C[XML text]
-  C -->|parse| B
+  B -->|write / codec 어댑터| C[wire body]
+  C -->|decodeXapiWire / parse| B
   B -->|decodeRoot| A
 
   D[CanonicalValue] -->|encodeWire + profile| E[Uint8Array]
@@ -54,13 +54,11 @@ flowchart LR
 
 ### 1. 스키마·어댑터 계층
 
-`xapi.operation`으로 요청과 응답의 Dataset 구조를 정의합니다. `encodeRoot`와 `decodeRoot`가 plain object와 `XapiRoot` 사이를 변환합니다. HTTP 어댑터는 이 계층을 사용해 XML 요청·응답을 처리합니다.
+`xapi.operation`으로 요청과 응답의 Dataset 구조와 선택할 codec을 정의합니다. codec을 생략하면 기존 XML 동작을 유지하고, codec을 지정하면 어댑터가 `XapiRoot`와 wire bytes 사이를 자동으로 변환합니다.
 
 ### 2. Wire codec 계층
 
-`encodeWire`와 `decodeWire`는 `CanonicalValue`와 `Uint8Array` 사이를 변환합니다. `WireProfile`이 실제 코덱을 결정합니다. 이 계층은 HTTP 전송 자체를 수행하지 않으므로, Fetch·Hono 등에서 사용할 경우 직접 `Request`/`Response` body와 Content-Type을 연결해야 합니다.
-
-두 계층은 현재 별도의 공개 API입니다. `XapiRoot`를 자동으로 `CanonicalValue`로 바꾸는 변환 함수는 제공하지 않습니다.
+`encodeWire`와 `decodeWire`는 `CanonicalValue`와 `Uint8Array` 사이를 변환하는 저수준 API입니다. operation 기반 어댑터는 내부에서 `XapiRoot`와 `CanonicalValue`를 연결하므로 일반 애플리케이션 코드는 operation 타입만 다루면 됩니다.
 
 ## 1. 타입 스키마와 operation
 
@@ -205,7 +203,7 @@ const response = await xapiFetch("/xapi/users", operation, {
 response.datasets.users[0].name; // string
 ```
 
-현재 `xapiFetch`의 operation overload는 XML을 사용합니다. JSON·SSV·Binary profile을 선택하려면 아래의 wire codec API와 직접 HTTP body를 연결해야 합니다.
+`xapiFetch`의 기본 codec은 XML입니다. JSON·SSV·Binary를 사용하려면 operation에 `codec`을 지정하거나 호출 옵션에 `codec`을 지정합니다.
 
 ### Express, NestJS, Hono
 
@@ -457,97 +455,113 @@ await fetch("https://example.test/xapi", {
 
 `Content-Encoding` 값은 서버 계약에 따라 달라질 수 있습니다. xapi-js가 HTTP 헤더를 자동으로 정하지 않으므로 실제 서버 문서에 맞춰 설정해야 합니다.
 
-## 6. codec 선택을 포함한 전체 처리 예제
+## 6. operation에서 codec 선택하기
 
-다음 예제는 operation으로 애플리케이션 타입을 정의한 뒤, 서버 계약에 따라 wire profile을 선택하고 HTTP body를 직접 처리하는 흐름입니다.
+operation에 `codec`을 지정하면 요청·응답 모두 같은 wire profile을 사용합니다. 문자열로 profile만 지정하거나, `profile`과 `options`를 함께 지정할 수 있습니다. codec을 생략하면 기존 XML 경로가 유지됩니다.
 
 ```ts
-import {
-  decodeWire,
-  encodeRoot,
-  encodeWire,
-  type CanonicalValue,
-  xapi,
-} from "@xapi-js/core";
+import { xapi } from "@xapi-js/core";
+import { xapiFetch } from "@xapi-js/adaptor-fetch";
 
-const operation = xapi.operation({
+const search = xapi.operation({
+  codec: {
+    profile: "nexacro-ssv",
+    options: { zlib: true },
+  },
   request: xapi.root({
-    parameters: { service: xapi.string() },
     datasets: {
-      input: xapi.dataset({
-        id: xapi.int(),
-        keyword: xapi.string({ size: 100 }),
-      }),
+      input: xapi.dataset({ id: xapi.int(), keyword: xapi.string() }),
     },
   }),
   response: xapi.root({
-    parameters: { ErrorCode: xapi.int() },
     datasets: {
-      users: xapi.dataset({
-        id: xapi.int(),
-        name: xapi.string({ size: 100 }),
-      }),
+      users: xapi.dataset({ id: xapi.int(), name: xapi.string() }),
     },
   }),
 });
 
-const requestObject = {
-  parameters: { service: "user.search" },
-  datasets: { input: [{ id: 10, keyword: "kim" }] },
-};
-
-// operation schema -> XapiRoot
-const requestRoot = encodeRoot(operation.request, requestObject);
-
-// wire codec API는 CanonicalValue를 입력으로 받습니다.
-// requestRoot를 CanonicalValue로 바꾸는 자동 bridge는 없으므로,
-// 애플리케이션에서 CanonicalValue를 만들거나 기존 wire value를 사용합니다.
-const wireValue: CanonicalValue = {
-  parameters: [
-    { id: "service", type: "STRING", state: "value", lexical: "user.search", index: undefined, wire: undefined },
-  ],
-  datasets: [
-    {
-      id: "input",
-      columns: [
-        { id: "id", type: "INT", index: 0, size: "4" },
-        { id: "keyword", type: "STRING", index: 1, size: "100" },
-      ],
-      constColumns: [],
-      rows: [{
-        type: "N",
-        orgRow: null,
-        values: {
-          id: { state: "value", lexical: "10" },
-          keyword: { state: "value", lexical: "kim" },
-        },
-      }],
-      saveType: undefined,
-      wire: undefined,
-    },
-  ],
-  saveType: undefined,
-  wire: undefined,
-};
-
-// 서버 계약에 따라 이 한 줄의 profile을 선택합니다.
-const profile = "nexacro-ssv" as const;
-const body = encodeWire(wireValue, profile, { zlib: true });
-
-const response = await fetch("/xapi/users", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/octet-stream",
-    "Content-Encoding": "xapi-zlib",
-  },
-  body,
+const response = await xapiFetch("/xapi/users", search, {
+  parameters: {},
+  datasets: { input: [{ id: 7, keyword: "kim" }] },
 });
-
-const responseBytes = new Uint8Array(await response.arrayBuffer());
-const responseWire = decodeWire(responseBytes, profile, { zlib: true });
 ```
 
-XML 어댑터를 사용할 수 있는 서버라면 더 간단한 operation 호출을 권장합니다. Binary·SSV·JSON 서버처럼 body format을 직접 선택해야 하는 경우에만 위의 wire 계층을 사용하십시오.
+위 코드는 SSV body를 만들고 zlib transport marker를 붙여 전송합니다. Fetch 어댑터는 `application/x-ssv`를 Content-Type으로 설정하고, 응답의 marker를 자동으로 해제한 뒤 `response` 타입으로 변환합니다.
+
+operation에 codec을 넣지 않고 어댑터 호출 시점에만 선택할 수도 있습니다. 어댑터 옵션의 codec은 재사용하는 operation을 환경별 wire protocol로 연결할 때 유용합니다.
+
+```ts
+const response = await xapiFetch("/xapi/users", searchWithoutCodec, request, {
+  codec: "nexacro-json-1.0",
+  headers: { Authorization: "Bearer token" },
+});
+```
+
+Express는 선택한 codec에 맞는 raw body parser를 설치해야 합니다.
+
+```ts
+import express from "express";
+import { xapi } from "@xapi-js/core";
+import { xapiExpress } from "@xapi-js/adaptor-express";
+
+const app = express();
+app.use(express.raw({ type: ["application/json", "application/x-ssv", "application/octet-stream"] }));
+
+const operation = xapi.operation({
+  codec: "nexacro-json-1.0",
+  request: xapi.root({ datasets: { input: xapi.dataset({ id: xapi.int() }) } }),
+  response: xapi.root({ datasets: { output: xapi.dataset({ id: xapi.int() }) } }),
+});
+
+app.post("/xapi", xapiExpress(operation, request => ({
+  parameters: {},
+  datasets: { output: request.datasets.input },
+})));
+```
+
+Hono는 별도 body parser 없이 `Request.arrayBuffer()`를 사용합니다.
+
+```ts
+app.post("/xapi", xapiHono(operation, request => ({
+  parameters: {},
+  datasets: { output: request.datasets.input },
+}), {
+  codec: { profile: "xplatform-binary-5000", options: { zlib: true } },
+}));
+```
+
+NestJS는 request/response interceptor에 같은 codec 설정을 전달합니다.
+
+```ts
+@UseInterceptors(
+  new XapiRequestInterceptor(requestSchema, { codec: "nexacro-json-1.0" }),
+  new XapiResponseInterceptor(responseSchema, { codec: "nexacro-json-1.0" }),
+)
+```
+
+직접 `XapiRoot`를 다루는 경우에도 동일한 bridge API를 사용할 수 있습니다.
+
+```ts
+import { decodeXapiWire, encodeXapiWire } from "@xapi-js/core";
+
+const body = encodeXapiWire(requestRoot, {
+  profile: "nexacro-binary-5000",
+  options: { zlib: true },
+});
+const responseRoot = decodeXapiWire(responseBytes, {
+  profile: "nexacro-binary-5000",
+  options: { zlib: true },
+});
+```
+
+## 7. 저수준 CanonicalValue API
+
+어댑터가 아닌 별도 transport를 구현하거나 wire 데이터 자체를 검사해야 할 때는 `encodeWire`/`decodeWire`를 직접 사용합니다. 이 API는 `CanonicalValue`를 입력·출력으로 사용하며 operation 타입 변환은 수행하지 않습니다.
+
+```ts
+const bytes = encodeWire(canonicalValue, "nexacro-json-1.0");
+const value = decodeWire(bytes, "nexacro-json-1.0");
+```
 
 ## 7. 옵션과 보안 제한
 

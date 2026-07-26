@@ -15,3 +15,4 @@ export * from './xml-wire';
 export * from './ssv-wire';
 export * from './binary-wire';
 export * from './wire-codec';
+export * from './xapi-wire';

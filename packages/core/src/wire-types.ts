@@ -78,10 +78,19 @@ export interface WireLimits {
 export interface WireCodecOptions {
   strict?: boolean;
   zlib?: boolean;
+  preserveRowState?: boolean;
   base64Whitespace?: boolean;
   ssvUnitSeparator?: string;
   ssvRecordSeparator?: string;
   limits?: WireLimits;
+}
+export type XapiCodecSelection = WireProfile | {
+  profile: WireProfile;
+  options?: WireCodecOptions;
+  contentType?: string;
+};
+export interface XapiAdapterOptions {
+  codec?: XapiCodecSelection;
 }
 
 export type WireErrorClass = "invalid-request" | "unsupported-operation" | "unsupported-profile" | "malformed-input" | "invalid-value" | "limit-exceeded" | "internal";

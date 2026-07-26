@@ -1,46 +1,49 @@
 import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
-import { encodeRoot, isXapiRoot, write, XapiRootSchema } from '@xapi-js/core';
+import {
+  encodeRoot,
+  encodeXapiWire,
+  isXapiRoot,
+  type XapiAdapterOptions,
+  type XapiRootSchema,
+  write,
+  xapiContentType,
+} from '@xapi-js/core';
 import { Observable, map } from 'rxjs';
 
-/**
- * Interceptor that serializes XapiRoot objects returned by NestJS route handlers into XML strings.
- * This interceptor should be applied to routes that return an `XapiRoot` instance
- * and whose response should be `application/xml`.
- */
 @Injectable()
-export class XapiResponseInterceptor implements NestInterceptor<unknown, string> {
+export class XapiResponseInterceptor implements NestInterceptor<unknown, string | Uint8Array> {
   private readonly logger: Logger = new Logger(XapiResponseInterceptor.name);
+  private readonly schema?: XapiRootSchema;
+  private readonly options?: XapiAdapterOptions;
 
-  constructor(private readonly schema?: XapiRootSchema) {}
+  constructor(schema?: XapiRootSchema, options?: XapiAdapterOptions);
+  constructor(options?: XapiAdapterOptions);
+  constructor(schemaOrOptions?: XapiRootSchema | XapiAdapterOptions, options?: XapiAdapterOptions) {
+    if (schemaOrOptions && "kind" in schemaOrOptions) {
+      this.schema = schemaOrOptions;
+      this.options = options;
+    } else {
+      this.options = schemaOrOptions;
+    }
+  }
 
-  /**
-   * Intercepts the outgoing response to serialize XapiRoot to XML string.
-   * If the handler returns an `XapiRoot` instance, it attempts to serialize it
-   * into an XML string.
-   * @param context - The execution context of the request.
-   * @param next - A `CallHandler` to invoke the next interceptor or the route handler.
-   * @returns An `Observable` that will eventually contain the XML string response.
-   * @throws {Error} if the handler does not return an `XapiRoot` instance or serialization fails.
-   */
-  intercept(context: ExecutionContext, next: CallHandler): Observable<string> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<string | Uint8Array> {
     this.logger.debug(`XapiResponseInterceptor Intercepting response`);
+    const codec = this.options?.codec;
+    const http = typeof context.switchToHttp === "function" ? context.switchToHttp() : undefined;
+    const response = http && typeof http.getResponse === "function" ? http.getResponse() : undefined;
+    if (codec !== undefined && typeof response?.setHeader === "function") response.setHeader('Content-Type', xapiContentType(codec));
     return next.handle().pipe(
       map((value) => {
         const root = this.schema ? encodeRoot(this.schema, value as never) : value;
-        if (isXapiRoot(root)) {
-          try {
-            // Serialize XapiRoot output to XML string
-            const xmlOutput = write(root);
-            return xmlOutput!!;
-          } catch (error) {
-            this.logger.error(`Failed to serialize XapiRoot to XML string: ${error}`);
-            throw error; // Re-throw the original error
-          }
+        if (!isXapiRoot(root)) throw new Error('Handler did not return an XapiRoot instance');
+        try {
+          return codec === undefined ? write(root) : encodeXapiWire(root, codec);
+        } catch (error) {
+          this.logger.error(`Failed to serialize XapiRoot with codec: ${error}`);
+          throw error;
         }
-        else {
-          throw new Error('Handler did not return an XapiRoot instance');
-        }
-      })
-    )
+      }),
+    );
   }
 }
