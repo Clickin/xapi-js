@@ -252,6 +252,10 @@ export function decodeJsonWire(source: string, options: WireCodecOptions = {}): 
                   const column = dataset.columns[columnIndex];
                   originalValues[column.id] = typedCell(sourceRow[column.id], column.id in sourceRow, column.type);
                 }
+                for (let columnIndex = 0; columnIndex < dataset.constColumns.length; columnIndex++) {
+                  const column = dataset.constColumns[columnIndex];
+                  originalValues[column.id] = column.value || { state: "null", lexical: undefined };
+                }
                 dataset.rows[dataset.rows.length - 1].orgRow = { type: "O", orgRow: null, values: originalValues };
               }
               continue;
@@ -340,13 +344,14 @@ function serializeJava(value: JavaValue): string {
 }
 
 function columnObject(column: CanonicalColumn): JavaObject {
-  const entries: JavaEntry[] = [["id", column.id], ["type", wireType(column.type)], ["size", wireSize(column.type)]];
+  const entries: JavaEntry[] = [["id", column.id], ["type", wireType(column.type)], ["size", column.size || wireSize(column.type)]];
   if (column.prop) entries.push(["prop", column.prop]);
   if (column.sumtext) entries.push(["sumtext", column.sumtext]);
   return javaObject(entries);
 }
 
 function jsonCell(cell: CanonicalCell): string | undefined {
+  if (cell.state === "empty") return "";
   if (cell.state !== "value") return undefined;
   return cell.lexical || "";
 }
@@ -358,7 +363,7 @@ function datasetObject(dataset: CanonicalDataset, options: WireCodecOptions): Ja
     const constants = new Array<JavaValue>(dataset.constColumns.length);
     for (let index = 0; index < dataset.constColumns.length; index++) {
       const column = dataset.constColumns[index];
-      const values: JavaEntry[] = [["id", column.id], ["type", wireType(column.type)], ["size", wireSize(column.type)]];
+      const values: JavaEntry[] = [["id", column.id], ["type", wireType(column.type)], ["size", column.size || wireSize(column.type)]];
       const value = column.value && jsonCell(column.value);
       if (value !== undefined) values.push(["value", value]);
       constants[index] = javaObject(values);

@@ -379,14 +379,28 @@ export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xpl
               values[column.id] = xmlCell(text(cell), column.type);
             }
           }
-          if (org) {
+          let originalValues: Record<string, CanonicalCell> | undefined;
+          if (org && profile === "nexacro-xml-4000" && type === "U") {
+            originalValues = {};
             for (let cellIndex = 0; cellIndex < org.children.length; cellIndex++) {
               const cell = org.children[cellIndex];
               if (typeof cell === "string" || cell.name !== "Col") continue;
-              if (!columnById.has(cell.attributes.id || "")) throw new Error(`org column ${JSON.stringify(cell.attributes.id || "")} is not declared`);
+              const column = columnById.get(cell.attributes.id || "");
+              if (!column) throw new Error(`org column ${JSON.stringify(cell.attributes.id || "")} is not declared`);
+              originalValues[column.id] = xmlCell(text(cell), column.type);
+            }
+            for (let constantIndex = 0; constantIndex < dataset.constColumns.length; constantIndex++) {
+              const constant = dataset.constColumns[constantIndex];
+              if (!Object.prototype.hasOwnProperty.call(originalValues, constant.id)) {
+                originalValues[constant.id] = constants.get(constant.id) || { state: "null", lexical: undefined };
+              }
             }
           }
-          if (type !== "D") dataset.rows.push({ type, orgRow: null, values });
+          dataset.rows.push({
+            type,
+            orgRow: originalValues && Object.keys(originalValues).length > 0 ? { type: "O", orgRow: null, values: originalValues } : null,
+            values,
+          });
         }
       }
       out.datasets.push(dataset);

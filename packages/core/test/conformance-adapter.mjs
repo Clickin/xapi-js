@@ -26,7 +26,7 @@ function decodeBase64(input) {
 }
 
 function decodeValue(bytes, profile, options) {
-  return decodeWire(bytes, profile, options);
+  return decodeWire(bytes, profile, { ...options, preserveRowState: true });
 }
 
 function encodeValue(value, profile, options) {

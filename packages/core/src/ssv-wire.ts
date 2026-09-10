@@ -114,11 +114,17 @@ function parseDataset(records: string[], start: number, profile: SsvProfile, uni
     const fields = record.split(unit);
     const rowType = fields[0] as CanonicalRowType;
     if (!/^[NIUDO]$/.test(rowType)) continue;
-    if (rowType === "O") continue;
     const values: Record<string, CanonicalCell> = {};
     for (let columnIndex = 0; columnIndex < dataset.columns.length; columnIndex++) {
       const column = dataset.columns[columnIndex];
       values[column.id] = ssvCell(fields[columnIndex + 1] ?? "", profile, column.type);
+    }
+    if (rowType === "O") {
+      const previous = dataset.rows[dataset.rows.length - 1];
+      if (!previous || previous.type !== "U") throw new Error("orphan original row");
+      for (let constantIndex = 0; constantIndex < constants.length; constantIndex++) values[constants[constantIndex].id] = constants[constantIndex].cell;
+      previous.orgRow = { type: "O", orgRow: null, values };
+      continue;
     }
     for (let constantIndex = 0; constantIndex < constants.length; constantIndex++) values[constants[constantIndex].id] = constants[constantIndex].cell;
     dataset.rows.push({ type: rowType, orgRow: null, values });
@@ -135,7 +141,6 @@ function parseDataset(records: string[], start: number, profile: SsvProfile, uni
 
 export function decodeSsvWire(bytes: Uint8Array, profile: SsvProfile, options: WireCodecOptions = {}): CanonicalValue {
   try {
-    if (options.ssvUnitSeparator || options.ssvRecordSeparator) throw new Error("custom SSV separators are not supported by the official driver");
     const source = decodeText(bytes);
     const records = source.split(RECORD_SEPARATOR);
     const header = records[0];
@@ -178,7 +183,9 @@ export function decodeSsvWire(bytes: Uint8Array, profile: SsvProfile, options: W
 }
 
 function encodeCell(cell: CanonicalCell | undefined, profile: SsvProfile): string {
-  if (!cell || cell.state === "missing" || cell.state === "null" || cell.state === "empty") return profile === "nexacro-ssv" ? "\x03" : "";
+  if (!cell || cell.state === "missing") return profile === "nexacro-ssv" ? "\x03" : "";
+  if (cell.state === "null") return profile === "nexacro-ssv" ? "\x03" : "";
+  if (cell.state === "empty") return "";
   return cell.lexical || "";
 }
 

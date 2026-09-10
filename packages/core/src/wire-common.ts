@@ -254,6 +254,7 @@ export function validateCanonical(value: CanonicalValue): void {
   for (let parameterIndex = 0; parameterIndex < value.parameters.length; parameterIndex++) {
     const parameter = value.parameters[parameterIndex];
     if (!isKnownType(parameter.type)) throw new WireCodecError("invalid-value", `unsupported parameter type ${parameter.type}`, "value");
+    if (["DATASET", "INVALID"].includes(defaultType(parameter.type))) throw new WireCodecError("invalid-value", `unsupported public parameter type ${parameter.type}`, "value");
     validateCell(parameter.type, parameter, `value.parameters[${parameterIndex}]`);
   }
   for (let datasetIndex = 0; datasetIndex < value.datasets.length; datasetIndex++) {
@@ -262,11 +263,13 @@ export function validateCanonical(value: CanonicalValue): void {
     for (let columnIndex = 0; columnIndex < dataset.constColumns.length; columnIndex++) {
       const column = dataset.constColumns[columnIndex];
       if (!isKnownType(column.type)) throw new WireCodecError("invalid-value", `unsupported constant column type ${column.type}`, "value");
+      if (["DATASET", "INVALID"].includes(defaultType(column.type))) throw new WireCodecError("invalid-value", `unsupported public constant column type ${column.type}`, "value");
       if (column.value) validateCell(column.type, column.value, `value.datasets[${datasetIndex}].constColumns[${columnIndex}]`);
     }
     for (let columnIndex = 0; columnIndex < dataset.columns.length; columnIndex++) {
       const column = dataset.columns[columnIndex];
       if (!isKnownType(column.type)) throw new WireCodecError("invalid-value", `unsupported column type ${column.type}`, "value");
+      if (["DATASET", "INVALID"].includes(defaultType(column.type))) throw new WireCodecError("invalid-value", `unsupported public column type ${column.type}`, "value");
     }
     for (let rowIndex = 0; rowIndex < dataset.rows.length; rowIndex++) {
       const row = dataset.rows[rowIndex];
