@@ -249,12 +249,12 @@ function validateCell(type: string, cell: CanonicalCell, path: string): void {
   }
 }
 
-export function validateCanonical(value: CanonicalValue): void {
+export function validateCanonical(value: CanonicalValue, allowBinaryInternalParameters = false): void {
   if ((value.saveType || 0) < 0 || (value.saveType || 0) > 5) throw new WireCodecError("invalid-value", `invalid root saveType ${value.saveType}`, "value");
   for (let parameterIndex = 0; parameterIndex < value.parameters.length; parameterIndex++) {
     const parameter = value.parameters[parameterIndex];
     if (!isKnownType(parameter.type)) throw new WireCodecError("invalid-value", `unsupported parameter type ${parameter.type}`, "value");
-    if (["DATASET", "INVALID"].includes(defaultType(parameter.type))) throw new WireCodecError("invalid-value", `unsupported public parameter type ${parameter.type}`, "value");
+    if (!allowBinaryInternalParameters && ["DATASET", "INVALID"].includes(defaultType(parameter.type))) throw new WireCodecError("invalid-value", `unsupported public parameter type ${parameter.type}`, "value");
     validateCell(parameter.type, parameter, `value.parameters[${parameterIndex}]`);
   }
   for (let datasetIndex = 0; datasetIndex < value.datasets.length; datasetIndex++) {

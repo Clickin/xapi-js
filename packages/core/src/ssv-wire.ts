@@ -1,4 +1,4 @@
-import { defaultType, normalizeForEncode, normalizeSourceCell, validateCanonical, wireSize, wireType } from "./wire-common";
+import { defaultType, emptyValue, normalizeForEncode, normalizeSourceCell, validateCanonical, wireSize, wireType } from "./wire-common";
 import type { CanonicalCell, CanonicalDataset, CanonicalRowType, CanonicalValue, WireCodecOptions } from "./wire-types";
 import { WireCodecError } from "./wire-types";
 
@@ -76,12 +76,16 @@ function decodeText(bytes: Uint8Array): string {
   }
 }
 
+
+
+
+
 function splitTypedName(header: string): { id: string; type?: string } {
   const colon = header.indexOf(":");
   return colon < 0 ? { id: header, type: undefined } : { id: header.slice(0, colon), type: header.slice(colon + 1) };
 }
 
-function parseDataset(records: string[], start: number, profile: SsvProfile, unit: string): { dataset: CanonicalDataset; next: number } {
+function parseDataset(records: string[], start: number, profile: SsvProfile, unit: string, preserveRowState: boolean): { dataset: CanonicalDataset; next: number } {
   const id = records[start].slice("Dataset:".length);
   if (!id) throw new Error("empty SSV dataset id");
   const dataset: CanonicalDataset = { id, columns: [], constColumns: [], rows: [], saveType: undefined, wire: undefined };
@@ -121,9 +125,10 @@ function parseDataset(records: string[], start: number, profile: SsvProfile, uni
     }
     if (rowType === "O") {
       const previous = dataset.rows[dataset.rows.length - 1];
-      if (!previous || previous.type !== "U") throw new Error("orphan original row");
-      for (let constantIndex = 0; constantIndex < constants.length; constantIndex++) values[constants[constantIndex].id] = constants[constantIndex].cell;
-      previous.orgRow = { type: "O", orgRow: null, values };
+      if (preserveRowState && previous && previous.type === "U") {
+        for (let constantIndex = 0; constantIndex < constants.length; constantIndex++) values[constants[constantIndex].id] = constants[constantIndex].cell;
+        previous.orgRow = { type: "O", orgRow: null, values };
+      }
       continue;
     }
     for (let constantIndex = 0; constantIndex < constants.length; constantIndex++) values[constants[constantIndex].id] = constants[constantIndex].cell;
@@ -141,6 +146,7 @@ function parseDataset(records: string[], start: number, profile: SsvProfile, uni
 
 export function decodeSsvWire(bytes: Uint8Array, profile: SsvProfile, options: WireCodecOptions = {}): CanonicalValue {
   try {
+    if ((options.ssvRecordSeparator !== undefined && options.ssvRecordSeparator !== RECORD_SEPARATOR) || (options.ssvUnitSeparator !== undefined && options.ssvUnitSeparator !== UNIT_SEPARATOR)) return emptyValue();
     const source = decodeText(bytes);
     const records = source.split(RECORD_SEPARATOR);
     const header = records[0];
@@ -151,7 +157,7 @@ export function decodeSsvWire(bytes: Uint8Array, profile: SsvProfile, options: W
       const record = records[index];
       if (!record) { index++; continue; }
       if (record.startsWith("Dataset:")) {
-        const parsed = parseDataset(records, index, profile, UNIT_SEPARATOR);
+        const parsed = parseDataset(records, index, profile, UNIT_SEPARATOR, options.preserveRowState !== false);
         value.datasets.push(parsed.dataset);
         index = parsed.next;
         continue;
@@ -182,9 +188,10 @@ export function decodeSsvWire(bytes: Uint8Array, profile: SsvProfile, options: W
   }
 }
 
+
+
 function encodeCell(cell: CanonicalCell | undefined, profile: SsvProfile): string {
-  if (!cell || cell.state === "missing") return profile === "nexacro-ssv" ? "\x03" : "";
-  if (cell.state === "null") return profile === "nexacro-ssv" ? "\x03" : "";
+  if (!cell || cell.state === "missing" || cell.state === "null") return profile === "nexacro-ssv" ? "\x03" : "";
   if (cell.state === "empty") return "";
   return cell.lexical || "";
 }

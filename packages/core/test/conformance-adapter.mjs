@@ -5,7 +5,7 @@ import {
   encodeWire,
 } from "../dist/index.js";
 
-const profiles = ["nexacro-json-1.0", "nexacro-xml-4000", "xplatform-xml-4000", "nexacro-ssv", "xplatform-ssv", "nexacro-binary-5000", "xplatform-binary-5000"];
+const profiles = ["nexacro-json-1.0", "nexacro-xml-4000", "xplatform-xml-4000", "xplatform-xml-5000", "nexacro-ssv", "xplatform-ssv", "nexacro-binary-5000", "xplatform-binary-5000"];
 const capabilities = {
   protocolVersion: "1.0",
   implementation: "xapi-js",
@@ -26,7 +26,7 @@ function decodeBase64(input) {
 }
 
 function decodeValue(bytes, profile, options) {
-  return decodeWire(bytes, profile, { ...options, preserveRowState: true });
+  return decodeWire(bytes, profile, options);
 }
 
 function encodeValue(value, profile, options) {
@@ -34,7 +34,7 @@ function encodeValue(value, profile, options) {
 }
 
 function failure(error, defaultClass) {
-  if (error instanceof WireCodecError) return { ok: false, error: { class: error.class || defaultClass, ...(error.path ? { path: error.path } : {}), message: error.message } };
+  if (error instanceof WireCodecError) return { ok: false, error: { class: error.class || defaultClass, ...(error.path !== undefined ? { path: error.path } : {}), message: error.message } };
   return { ok: false, error: { class: defaultClass, message: error instanceof Error ? error.message : String(error) } };
 }
 

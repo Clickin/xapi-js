@@ -246,7 +246,7 @@ export function decodeJsonWire(source: string, options: WireCodecOptions = {}): 
             }
             if (rawType === "O") {
               if (!dataset.rows.length) throw new Error("orphan original row");
-              if (options.preserveRowState) {
+              if (options.preserveRowState !== false) {
                 const originalValues: Record<string, CanonicalCell> = {};
                 for (let columnIndex = 0; columnIndex < dataset.columns.length; columnIndex++) {
                   const column = dataset.columns[columnIndex];
@@ -344,7 +344,7 @@ function serializeJava(value: JavaValue): string {
 }
 
 function columnObject(column: CanonicalColumn): JavaObject {
-  const entries: JavaEntry[] = [["id", column.id], ["type", wireType(column.type)], ["size", column.size || wireSize(column.type)]];
+  const entries: JavaEntry[] = [["id", column.id], ["type", wireType(column.type)], ["size", column.size === undefined ? wireSize(column.type) : column.size]];
   if (column.prop) entries.push(["prop", column.prop]);
   if (column.sumtext) entries.push(["sumtext", column.sumtext]);
   return javaObject(entries);
@@ -363,7 +363,7 @@ function datasetObject(dataset: CanonicalDataset, options: WireCodecOptions): Ja
     const constants = new Array<JavaValue>(dataset.constColumns.length);
     for (let index = 0; index < dataset.constColumns.length; index++) {
       const column = dataset.constColumns[index];
-      const values: JavaEntry[] = [["id", column.id], ["type", wireType(column.type)], ["size", column.size || wireSize(column.type)]];
+      const values: JavaEntry[] = [["id", column.id], ["type", wireType(column.type)], ["size", column.size === undefined ? wireSize(column.type) : column.size]];
       const value = column.value && jsonCell(column.value);
       if (value !== undefined) values.push(["value", value]);
       constants[index] = javaObject(values);

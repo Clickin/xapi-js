@@ -325,9 +325,7 @@ function writeLengthBytes(writer: BinaryWriter, bytes: Uint8Array): void {
 function writeTypedValue(writer: BinaryWriter, type: string, cell: CanonicalCell | undefined): void {
   const normalized = defaultType(type);
   if (normalized === "UNDEFINED" || normalized === "DATASET" || normalized === "INVALID") {
-    writer.u16(21);
-    writer.length(0);
-    return;
+    throw new WireCodecError("invalid-value", `unsupported PlatformBinary type ${type}`, "");
   }
   if (normalized === "NULL" || !cell || cell.state !== "value" && cell.state !== "empty") {
     writer.u16(0);
@@ -435,7 +433,7 @@ function writeDataset(writer: BinaryWriter, dataset: CanonicalDataset): void {
 }
 
 export function encodeBinaryWire(source: CanonicalValue, _profile: BinaryProfile): Uint8Array {
-  validateCanonical(source);
+  validateCanonical(source, true);
   if (!source.parameters.length && !source.datasets.length) return new Uint8Array();
   const value = normalizeForEncode(source);
   const writer = new BinaryWriter();

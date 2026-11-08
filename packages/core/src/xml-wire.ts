@@ -9,9 +9,10 @@ type XmlElement = {
   selfClosing: boolean;
 };
 
-const XML_NAMESPACES: Record<Extract<WireProfile, "nexacro-xml-4000" | "xplatform-xml-4000">, readonly string[]> = {
+const XML_NAMESPACES: Record<Extract<WireProfile, "nexacro-xml-4000" | "xplatform-xml-4000" | "xplatform-xml-5000">, readonly string[]> = {
   "nexacro-xml-4000": ["http://www.nexacroplatform.com/platform/dataset", "http://www.nexacro.com/platform/dataset"],
   "xplatform-xml-4000": ["http://www.tobesoft.com/platform/Dataset", "http://www.tobesoft.com/platform/dataset"],
+  "xplatform-xml-5000": ["http://www.tobesoft.com/platform/Dataset"],
 };
 
 const XML_DEFAULT_SIZES: Record<string, string> = {
@@ -193,13 +194,13 @@ function validateStructure(root: XmlElement): void {
 }
 
 
-function xmlColumnType(type: string | undefined, profile: "nexacro-xml-4000" | "xplatform-xml-4000"): string {
+function xmlColumnType(type: string | undefined, profile: "nexacro-xml-4000" | "xplatform-xml-4000" | "xplatform-xml-5000"): string {
   if (!type) return "UNDEFINED";
   const normalized = defaultType(type);
   switch (normalized) {
     case "STRING":
     case "CHAR": return "STRING";
-    case "BOOLEAN": return profile === "xplatform-xml-4000" ? "BOOLEAN" : "INT";
+    case "BOOLEAN": return profile !== "nexacro-xml-4000" ? "BOOLEAN" : "INT";
     case "SHORT":
     case "USHORT":
     case "INT":
@@ -218,7 +219,7 @@ function xmlColumnType(type: string | undefined, profile: "nexacro-xml-4000" | "
   }
 }
 
-function xmlParameterType(type: string | undefined, profile: "nexacro-xml-4000" | "xplatform-xml-4000"): string {
+function xmlParameterType(type: string | undefined, profile: "nexacro-xml-4000" | "xplatform-xml-4000" | "xplatform-xml-5000"): string {
   if (!type) return "STRING";
   const normalized = xmlColumnType(type, profile);
   return normalized === "UNDEFINED" ? "STRING" : normalized;
@@ -265,7 +266,7 @@ function rowType(value: string): CanonicalRowType {
   }
 }
 
-export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xplatform-xml-4000", options: WireCodecOptions = {}): CanonicalValue {
+export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xplatform-xml-4000" | "xplatform-xml-5000", options: WireCodecOptions = {}): CanonicalValue {
   const strict = options.strict ?? true;
   try {
     if (/<!DOCTYPE/i.test(source)) throw new Error("DTD and external entities are forbidden");
@@ -277,7 +278,7 @@ export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xpl
       root: {
         namespace: XML_NAMESPACES[profile][0],
         version: profile === "nexacro-xml-4000" ? "4000" : undefined,
-        ver: profile === "xplatform-xml-4000" ? "4000" : undefined,
+        ver: profile === "xplatform-xml-4000" ? "4000" : profile === "xplatform-xml-5000" ? "5000" : undefined,
       },
     };
 
@@ -355,7 +356,6 @@ export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xpl
           const sourceRow = rows.children[rowIndex];
           if (typeof sourceRow === "string" || sourceRow.name !== "Row") continue;
           const type = rowType(sourceRow.attributes.type || "");
-          const org = firstElement(sourceRow, "OrgRow");
           const values: Record<string, CanonicalCell> = {};
           for (let columnIndex = 0; columnIndex < dataset.columns.length; columnIndex++) values[dataset.columns[columnIndex].id] = { state: "null", lexical: undefined };
           for (let columnIndex = 0; columnIndex < dataset.constColumns.length; columnIndex++) {
@@ -380,7 +380,8 @@ export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xpl
             }
           }
           let originalValues: Record<string, CanonicalCell> | undefined;
-          if (org && profile === "nexacro-xml-4000" && type === "U") {
+          const org = firstElement(sourceRow, "OrgRow");
+          if (org && type === "U" && options.preserveRowState !== false) {
             originalValues = {};
             for (let cellIndex = 0; cellIndex < org.children.length; cellIndex++) {
               const cell = org.children[cellIndex];
@@ -391,16 +392,10 @@ export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xpl
             }
             for (let constantIndex = 0; constantIndex < dataset.constColumns.length; constantIndex++) {
               const constant = dataset.constColumns[constantIndex];
-              if (!Object.prototype.hasOwnProperty.call(originalValues, constant.id)) {
-                originalValues[constant.id] = constants.get(constant.id) || { state: "null", lexical: undefined };
-              }
+              if (!Object.prototype.hasOwnProperty.call(originalValues, constant.id)) originalValues[constant.id] = constants.get(constant.id) || { state: "null", lexical: undefined };
             }
           }
-          dataset.rows.push({
-            type,
-            orgRow: originalValues && Object.keys(originalValues).length > 0 ? { type: "O", orgRow: null, values: originalValues } : null,
-            values,
-          });
+          dataset.rows.push({ type, orgRow: originalValues && Object.keys(originalValues).length > 0 ? { type: "O", orgRow: null, values: originalValues } : null, values });
         }
       }
       out.datasets.push(dataset);
@@ -450,12 +445,12 @@ function writeXmlConstant(lines: string[], column: CanonicalConstColumn, xplatfo
   lines.push(blob ? `${start}></ConstColumn>` : `${start}/>`);
 }
 
-export function encodeXmlWire(source: CanonicalValue, profile: "nexacro-xml-4000" | "xplatform-xml-4000"): string {
+export function encodeXmlWire(source: CanonicalValue, profile: "nexacro-xml-4000" | "xplatform-xml-4000" | "xplatform-xml-5000"): string {
   validateCanonical(source);
   const value = normalizeForEncode(source);
-  const xplatform = profile === "xplatform-xml-4000";
+  const xplatform = profile !== "nexacro-xml-4000";
   const lines: string[] = ['<?xml version="1.0" encoding="UTF-8"?>'];
-  lines.push(xplatform ? '<Root xmlns="http://www.tobesoft.com/platform/dataset" ver="5000">' : '<Root xmlns="http://www.nexacroplatform.com/platform/dataset">');
+  lines.push(xplatform ? `<Root xmlns="http://www.tobesoft.com/platform/dataset" ver="${profile === "xplatform-xml-5000" ? "5000" : "4000"}">` : '<Root xmlns="http://www.nexacroplatform.com/platform/dataset">');
   if (!value.parameters.length) lines.push("\t<Parameters/>");
   else {
     lines.push("\t<Parameters>");
