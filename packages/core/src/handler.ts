@@ -161,7 +161,9 @@ function writeParameters(builder: XmlStringBuilder, parameters: Parameter[]): vo
     else if (parameter.value instanceof Date) value = dateToString(parameter.value, parameter.type as Extract<ColumnType, "DATE" | "DATETIME" | "TIME">);
     else if (parameter.value instanceof Uint8Array) value = uint8ArrayToBase64(parameter.value);
     else if (parameter.value !== undefined) value = String(parameter.value);
-    builder.writeStartElement("Parameter", { id: parameter.id, type: parameter.type !== undefined ? normalizeColumnType(parameter.type) : undefined, value }, true);
+    const attributes = { id: parameter.id, type: parameter.type !== undefined ? normalizeColumnType(parameter.type) : undefined };
+    if (value === undefined) builder.writeStartElement("Parameter", attributes, true);
+    else builder.writeElementWithText("Parameter", attributes, value);
   }
   builder.writeEndElement("Parameters");
 }

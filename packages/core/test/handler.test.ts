@@ -253,13 +253,13 @@ describe("Xapi Handler Tests", () => {
     const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('id="stringParam"');
-    expect(xmlOutput).toContain('value="test"');
+    expect(xmlOutput).toContain('>test</Parameter>');
     expect(xmlOutput).toContain('id="intParam"');
-    expect(xmlOutput).toContain('value="123"');
+    expect(xmlOutput).toContain('>123</Parameter>');
     expect(xmlOutput).toContain('id="dateParam"');
-    expect(xmlOutput).toContain('value="20230615"');
+    expect(xmlOutput).toContain('>20230615</Parameter>');
     expect(xmlOutput).toContain('id="blobParam"');
-    expect(xmlOutput).toContain('value="SGVsbG8="');
+    expect(xmlOutput).toContain('>SGVsbG8=</Parameter>');
     expect(xmlOutput).toContain('<Dataset id="test">');
   });
 
@@ -274,7 +274,7 @@ describe("Xapi Handler Tests", () => {
 
     expect(xmlOutput).toContain('id="numberParam"');
     expect(xmlOutput).toContain('type="INT"');
-    expect(xmlOutput).toContain('value="42"');
+    expect(xmlOutput).toContain('>42</Parameter>');
   });
 
   it("should write empty root without parameters or datasets", async () => {
@@ -758,7 +758,7 @@ describe("Xapi Handler Tests", () => {
 
     expect(xmlOutput).toContain('id="timeParam"');
     expect(xmlOutput).toContain('type="TIME"');
-    expect(xmlOutput).toContain('value="143022"');
+    expect(xmlOutput).toContain('>143022</Parameter>');
   });
 
   it("should handle parameter with number value in write (specific test for line 192)", async () => {
@@ -773,7 +773,7 @@ describe("Xapi Handler Tests", () => {
 
     expect(xmlOutput).toContain('id="testNumberParam"');
     expect(xmlOutput).toContain('type="INT"');
-    expect(xmlOutput).toContain('value="12345"');
+    expect(xmlOutput).toContain('>12345</Parameter>');
   });
 
   it("should handle parameter with boolean value in write (specific test for line 192)", async () => {
@@ -787,7 +787,7 @@ describe("Xapi Handler Tests", () => {
     const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('id="testBooleanParam"');
-    expect(xmlOutput).toContain('value="true"');
+    expect(xmlOutput).toContain('>true</Parameter>');
   });
 
   it("should handle parameter with boolean value in write (specific test for line 192)", async () => {
@@ -801,7 +801,7 @@ describe("Xapi Handler Tests", () => {
     const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('id="testBooleanParam"');
-    expect(xmlOutput).toContain('value="true"');
+    expect(xmlOutput).toContain('>true</Parameter>');
   });
 
   it("should handle CDATA values in OrgRow with parseToTypes enabled", async () => {
@@ -1186,5 +1186,18 @@ describe("writeString", () => {
     const root = new XapiRoot();
     root.addDataset(new Dataset("empty"));
     expect(write(root)).not.toContain("<ColumnInfo>");
+  });
+
+  it("writes Parameter values as body text and reads them back unchanged", () => {
+    const root = new XapiRoot();
+    root.addParameter({ id: "a", type: "STRING", value: " x\ty<z " });
+    const xmlOutput = write(root);
+    expect(xmlOutput).not.toContain("value=");
+    expect(parse(xmlOutput).getParameter("a")?.value).toBe(" x\ty<z ");
+  });
+
+  it("decodes every numeric character reference once", () => {
+    const xml = '<Root><Parameters><Parameter id="a">&#x9;&#65;&#xAC00;&amp;#32;</Parameter></Parameters></Root>';
+    expect(parse(xml).getParameter("a")?.value).toBe("\tA가&#32;");
   });
 });

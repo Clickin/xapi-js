@@ -303,9 +303,10 @@ export function _unescapeXml(str?: string): string | undefined {
     else if (entity === "&quot;") output += '"';
     else if (entity === "&apos;") output += "'";
     else if (entity === "&amp;") output += "&";
-    else if (entity.startsWith("&#") && entity[2] !== "x" && entity[2] !== "X") {
-      const code = Number.parseInt(entity.slice(2, -1), 10);
-      output += code >= 1 && code <= 32 ? String.fromCharCode(code) : entity;
+    else if (entity.startsWith("&#")) {
+      const hexadecimal = entity[2] === "x" || entity[2] === "X";
+      const code = Number.parseInt(entity.slice(hexadecimal ? 3 : 2, -1), hexadecimal ? 16 : 10);
+      output += code >= 1 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : entity;
     } else output += entity;
     position = semicolon + 1;
   }

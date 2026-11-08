@@ -32,11 +32,18 @@ function isXmlNameCharacter(code: number): boolean {
 class XmlParser {
   private position = 0;
 
-  constructor(private readonly source: string) {}
+  private lastPrefix = "";
+  private readonly source: string;
+
+  constructor(source: string) {
+    // Line endings are normalized before entities are read, so &#13; stays a CR.
+    this.source = source.indexOf("\r") < 0 ? source : source.replace(/\r\n?/g, "\n");
+  }
 
   parse(): XmlElement {
     this.skipWhitespace();
-    if (this.source.startsWith("<?xml", this.position)) {
+    if (/^<\?xml[\t\n ]/.test(this.source.slice(this.position, this.position + 6))) {
+      if (this.position > 0) throw new Error("XML declaration must be at the start of the document");
       const end = this.source.indexOf("?>", this.position + 5);
       if (end < 0) throw new Error("unterminated XML declaration");
       this.position = end + 2;
@@ -83,21 +90,28 @@ class XmlParser {
       if (code === 58) lastColon = this.position;
       this.position++;
     }
+    this.lastPrefix = lastColon >= 0 ? this.source.slice(start, lastColon) : "";
     return this.source.slice(lastColon >= 0 ? lastColon + 1 : start, this.position);
   }
 
-  private readElement(): XmlElement {
+  private readElement(inherited?: ReadonlySet<string>): XmlElement {
     if (this.source[this.position++] !== "<" || this.source[this.position] === "/") throw new Error("expected XML element");
     const name = this.readName();
+    const elementPrefix = this.lastPrefix;
+    let prefixes = inherited;
+    let usedPrefixes: string[] | undefined;
     const attributes: Record<string, string> = Object.create(null) as Record<string, string>;
     while (true) {
       this.skipWhitespace();
       if (this.source.startsWith("/>", this.position)) {
         this.position += 2;
+        checkPrefixes(elementPrefix, usedPrefixes, prefixes);
         return { name, attributes, children: [], selfClosing: true };
       }
       if (this.source[this.position] === ">") { this.position++; break; }
       const attribute = this.readName();
+      if (this.lastPrefix === "xmlns") (prefixes = new Set(prefixes)).add(attribute);
+      else if (this.lastPrefix) (usedPrefixes ||= []).push(this.lastPrefix);
       if (Object.prototype.hasOwnProperty.call(attributes, attribute)) throw new Error(`duplicate XML attribute ${JSON.stringify(attribute)}`);
       this.skipWhitespace();
       if (this.source[this.position++] !== "=") throw new Error(`attribute ${attribute} has no value`);
@@ -109,6 +123,8 @@ class XmlParser {
       attributes[attribute] = decodeEntities(this.source.slice(this.position, end));
       this.position = end + 1;
     }
+
+    checkPrefixes(elementPrefix, usedPrefixes, prefixes);
 
     const children: Array<XmlElement | string> = [];
     while (this.position < this.source.length) {
@@ -132,7 +148,7 @@ class XmlParser {
         this.position = end + 3;
         continue;
       }
-      if (this.source[this.position] === "<") children.push(this.readElement());
+      if (this.source[this.position] === "<") children.push(this.readElement(prefixes));
       else {
         const end = this.source.indexOf("<", this.position);
         if (end < 0) throw new Error(`unclosed element ${name}`);
@@ -142,6 +158,19 @@ class XmlParser {
     }
     throw new Error(`unclosed element ${name}`);
   }
+}
+
+function checkPrefixes(elementPrefix: string, usedPrefixes: readonly string[] | undefined, declared: ReadonlySet<string> | undefined): void {
+  if (elementPrefix && elementPrefix !== "xml" && !declared?.has(elementPrefix)) throw new Error(`undeclared XML prefix ${JSON.stringify(elementPrefix)}`);
+  if (!usedPrefixes) return;
+  for (let index = 0; index < usedPrefixes.length; index++) {
+    const prefix = usedPrefixes[index];
+    if (prefix !== "xml" && !declared?.has(prefix)) throw new Error(`undeclared XML prefix ${JSON.stringify(prefix)}`);
+  }
+}
+
+function isXmlCharacter(code: number): boolean {
+  return code === 9 || code === 10 || code === 13 || code >= 0x20 && code <= 0xd7ff || code >= 0xe000 && code <= 0xfffd || code >= 0x10000 && code <= 0x10ffff;
 }
 
 function decodeEntities(source: string): string {
@@ -163,7 +192,7 @@ function decodeEntities(source: string): string {
     else if (entity.startsWith("&#x") || entity.startsWith("&#X") || entity.startsWith("&#")) {
       const hexadecimal = entity[2] === "x" || entity[2] === "X";
       const numeric = Number.parseInt(entity.slice(hexadecimal ? 3 : 2, -1), hexadecimal ? 16 : 10);
-      if (!Number.isFinite(numeric) || numeric === 0 || numeric > 0x10ffff || numeric >= 0xd800 && numeric <= 0xdfff) throw new Error(`invalid XML character reference ${entity}`);
+      if (!isXmlCharacter(numeric)) throw new Error(`invalid XML character reference ${entity}`);
       output += String.fromCodePoint(numeric);
     } else throw new Error(`unknown XML entity ${entity}`);
     position = semicolon + 1;
@@ -185,6 +214,15 @@ function text(element: XmlElement): string {
   for (let index = 0; index < element.children.length; index++) {
     const child = element.children[index];
     if (typeof child === "string") output += child;
+  }
+  return output;
+}
+
+function deepText(element: XmlElement): string {
+  let output = "";
+  for (let index = 0; index < element.children.length; index++) {
+    const child = element.children[index];
+    output += typeof child === "string" ? child : deepText(child);
   }
   return output;
 }
@@ -368,7 +406,7 @@ export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xpl
             if (child.name === "Col") {
               const column = columnById.get(child.attributes.id || "");
               if (!column) throw new Error(`column ${JSON.stringify(child.attributes.id || "")} is not declared`);
-              values[column.id] = xmlCell(text(child), column.type);
+              values[column.id] = xmlCell(deepText(child), column.type);
               continue;
             }
             for (let cellIndex = 0; cellIndex < child.children.length; cellIndex++) {
@@ -376,7 +414,7 @@ export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xpl
               if (typeof cell === "string" || cell.name !== "Col") continue;
               const column = columnById.get(cell.attributes.id || "");
               if (!column) throw new Error(`column ${JSON.stringify(cell.attributes.id || "")} is not declared`);
-              values[column.id] = xmlCell(text(cell), column.type);
+              values[column.id] = xmlCell(deepText(cell), column.type);
             }
           }
           let originalValues: Record<string, CanonicalCell> | undefined;
@@ -388,7 +426,7 @@ export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xpl
               if (typeof cell === "string" || cell.name !== "Col") continue;
               const column = columnById.get(cell.attributes.id || "");
               if (!column) throw new Error(`org column ${JSON.stringify(cell.attributes.id || "")} is not declared`);
-              originalValues[column.id] = xmlCell(text(cell), column.type);
+              originalValues[column.id] = xmlCell(deepText(cell), column.type);
             }
             for (let constantIndex = 0; constantIndex < dataset.constColumns.length; constantIndex++) {
               const constant = dataset.constColumns[constantIndex];

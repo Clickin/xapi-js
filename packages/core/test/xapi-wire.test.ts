@@ -142,4 +142,39 @@ describe("XapiRoot wire bridge", () => {
     const decoded = decodeXapiWire(encodeXapiWire(root, "nexacro-ssv"), "nexacro-ssv");
     expect(decoded.getDataset("users")?.getColumn(0, "id")).toBe(3);
   });
+
+  describe("XML reader matches the original drivers", () => {
+    const decodeXml = (xml: string) => decodeWire(new TextEncoder().encode(xml), "nexacro-xml-4000");
+    const parameter = (body: string) => `<Root><Parameters><Parameter id="a">${body}</Parameter></Parameters></Root>`;
+    const lexical = (body: string) => decodeXml(parameter(body)).parameters[0].lexical;
+
+    it("keeps text around markup nested in a Col", () => {
+      const decoded = decodeXml('<Root><Dataset id="d"><ColumnInfo><Column id="c" type="STRING"/></ColumnInfo><Rows><Row><Col id="c">a<b>c</b>d</Col></Row></Rows></Dataset></Root>');
+      expect(decoded.datasets[0].rows[0].values.c.lexical).toBe("acd");
+    });
+
+    it("rejects a character reference to a character XML does not allow", () => {
+      expect(() => decodeXml(parameter("&#1;"))).toThrow(WireCodecError);
+      expect(lexical("&#9;")).toBe("\t");
+    });
+
+    it("rejects whitespace before the XML declaration", () => {
+      expect(() => decodeXml(' <?xml version="1.0"?><Root/>')).toThrow(WireCodecError);
+    });
+
+    it("normalizes raw line endings but keeps a CR character reference", () => {
+      expect(lexical("a\r\nb\rc&#13;d")).toBe("a\nb\nc\rd");
+    });
+
+    it("rejects undeclared prefixes and accepts declared ones", () => {
+      expect(() => decodeXml("<Root><p:Parameters/></Root>")).toThrow(WireCodecError);
+      expect(() => decodeXml('<Root p:x="1"/>')).toThrow(WireCodecError);
+      expect(() => decodeXml('<Root xmlns:p="urn:p" p:x="1"><p:Parameters/></Root>')).not.toThrow();
+      expect(() => decodeXml('<Root xml:lang="ko"/>')).not.toThrow();
+    });
+
+    it("does not decode entities twice", () => {
+      expect(lexical("&amp;#32;")).toBe("&#32;");
+    });
+  });
 });
