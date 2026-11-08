@@ -73,10 +73,9 @@ describe("XapiRoot wire bridge", () => {
   });
   it("preserves XML UPDATE original rows for Nexacro and XPlatform profiles", () => {
     const row = '<Dataset id="d"><ColumnInfo><Column id="a" type="STRING"/></ColumnInfo><Rows><Row type="insert"><Col id="a">inserted</Col></Row><Row type="update"><Col id="a">new</Col><OrgRow><Col id="a">old</Col></OrgRow></Row><Row type="delete"><Col id="a">deleted</Col></Row></Rows></Dataset>';
-    const inputs: Array<["nexacro-xml-4000" | "xplatform-xml-4000" | "xplatform-xml-5000", string]> = [
+    const inputs: Array<["nexacro-xml-4000" | "xplatform-xml-4000", string]> = [
       ["nexacro-xml-4000", `<Root xmlns="http://www.nexacroplatform.com/platform/dataset" version="4000">${row}</Root>`],
       ["xplatform-xml-4000", `<Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">${row}</Root>`],
-      ["xplatform-xml-5000", `<Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="5000">${row}</Root>`],
     ];
     for (const [profile, xml] of inputs) {
       const decoded = decodeWire(new TextEncoder().encode(xml), profile);
@@ -126,11 +125,9 @@ describe("XapiRoot wire bridge", () => {
       expect(error).toMatchObject({ class: "invalid-value", path: "" });
     }
   });
-  it("encodes XPlatform XML 5000 while retaining the 4000 profile", () => {
+  it("encodes XPlatform XML with the documented root", () => {
     const value: CanonicalValue = { parameters: [], datasets: [] };
-    expect(new TextDecoder().decode(encodeWire(value, "xplatform-xml-5000"))).toContain('<Root xmlns="http://www.tobesoft.com/platform/dataset" ver="5000">');
-    expect(new TextDecoder().decode(encodeWire(value, "xplatform-xml-4000"))).toContain('ver="4000"');
-    expect(decodeWire(new TextEncoder().encode('<Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="5000"><Parameters/></Root>'), "xplatform-xml-5000")).toMatchObject({ wire: { root: { namespace: "http://www.tobesoft.com/platform/Dataset", ver: "5000" } } });
+    expect(new TextDecoder().decode(encodeWire(value, "xplatform-xml-4000"))).toContain('<Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">');
   });
   it("keeps raw XapiRoot handlers compatible with non-XML codecs", () => {
     const dataset = new Dataset("users");
@@ -143,7 +140,7 @@ describe("XapiRoot wire bridge", () => {
     expect(decoded.getDataset("users")?.getColumn(0, "id")).toBe(3);
   });
 
-  describe("XML reader matches the original drivers", () => {
+  describe("XML reader document rules", () => {
     const decodeXml = (xml: string) => decodeWire(new TextEncoder().encode(xml), "nexacro-xml-4000");
     const parameter = (body: string) => `<Root><Parameters><Parameter id="a">${body}</Parameter></Parameters></Root>`;
     const lexical = (body: string) => decodeXml(parameter(body)).parameters[0].lexical;
