@@ -56,10 +56,10 @@ describe('XapiResponseInterceptor', () => {
     const observableResult = interceptor.intercept(mockContext, mockCallHandler);
     const result = await firstValueFrom(observableResult);
     expect(typeof result).toBe('string');
-    expect(result).toContain('<Root xmlns="http://www.nexacroplatform.com/platform/dataset" version="4000">');
+    expect(result).toContain('<Root xmlns="http://www.nexacroplatform.com/platform/dataset">');
     expect(result).toContain('<Dataset id="test">');
-    expect(result).toMatch(/<Column id="intCol" size="10" type="INT"\s*\/>/);
-    expect(result).toMatch(/<Column id="stringCol" size="50" type="STRING"\s*\/>/);
+    expect(result).toMatch(/<Column id="intCol" type="int" size="10"\/>/);
+    expect(result).toMatch(/<Column id="stringCol" type="string" size="50"\/>/);
     expect(result).toContain('<Rows>');
     expect(result).toContain('<Row>');
     expect(result).toContain('<Col id="intCol">123</Col>');
@@ -120,7 +120,7 @@ describe('XapiResponseInterceptor', () => {
       handle: () => of({ parameters: {}, datasets: { output: [{ id: 7 }] } }),
     } as CallHandler;
     const result = await firstValueFrom(schemaInterceptor.intercept({} as ExecutionContext, callHandler));
-    expect(result).toContain('<Column id="id" size="10" type="INT"');
+    expect(result).toContain('<Column id="id" type="int" size="10"');
     expect(result).toContain('<Col id="id">7</Col>');
   });
 

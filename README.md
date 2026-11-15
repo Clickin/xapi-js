@@ -318,6 +318,17 @@ for (let index = 0; index < wireProfiles.length; index++) {
 
 profile은 단순히 Content-Type 문자열이 아닙니다. 동일한 Dataset이라도 Nexacro와 XPlatform의 namespace, SSV 세부 규칙, Binary profile 버전에 따라 결과가 달라질 수 있으므로 서버 설정과 정확히 맞춰야 합니다.
 
+### 원본 드라이버와 같은 출력
+
+`encodeWire`는 원본 XPLATFORM·Nexacro Java 드라이버가 쓰는 bytes를 그대로 만듭니다. xapi-conformance의 드라이버 출력 벡터로 모든 profile을 검증합니다. 그래서 다음 동작도 드라이버를 따릅니다.
+
+- `saveType`이 없으면 드라이버 기본값인 NORMAL(2)로 씁니다. 모든 행을 일반 행(`N`)으로 쓰고 original row와 삭제 행은 쓰지 않습니다. 행 상태를 보내려면 `saveType: 1`(ALL)을 지정하거나 `preserveRowState: true` 옵션을 줍니다. `encodeXapiWire`, `write`, 어댑터는 ALL로 씁니다.
+- 삭제 행(`D`)은 항상 다른 행 뒤에 씁니다. original row는 `U` 행에만 붙습니다.
+- 값은 드라이버의 문자열 변환을 거칩니다. 범위를 넘는 INT·LONG은 `0`, 읽을 수 없는 BIGDECIMAL·날짜는 null, DATETIME은 17자리(`yyyyMMddHHmmssSSS`), TIME은 9자리(`HHmmssSSS`)가 됩니다. 날짜는 UTC로 계산합니다.
+- XML의 type 이름은 소문자이고 `FLOAT`은 `float`, `DECIMAL`은 `bigdecimal`로 씁니다. XPLATFORM은 공백과 제어 문자를 문자 참조(`&#32;`, `&#1;`)로 씁니다. Nexacro XML은 탭·LF·CR 외의 제어 문자를 거부합니다.
+
+decoder도 드라이버가 읽는 방식대로 값을 돌려줍니다. 선언된 `FLOAT`은 `DOUBLE`, `DECIMAL`과 알 수 없는 type은 `UNDEFINED`로 읽고, 삭제 행은 마지막으로 옮깁니다. `preserveRowState: false`를 주면 original row를 버립니다.
+
 ## 4. 코덱별 상세 설명
 
 ### XML 코덱
@@ -342,7 +353,7 @@ const parsed = decodeWire(
 
 XML wire decoder는 기본적으로 strict 모드이며 DTD와 external entity를 허용하지 않습니다. 외부 엔티티를 허용하는 방식으로 우회하지 마십시오.
 
-기존 저수준 API를 이용하는 경우에는 `XapiRoot`와 문자열 기반 `parse`/`write`를 사용할 수도 있습니다.
+기존 저수준 API를 이용하는 경우에는 `XapiRoot`와 문자열 기반 `parse`/`write`를 사용할 수도 있습니다. `write`는 `initXapi`로 지정한 namespace에 맞는 XML profile로 드라이버와 같은 XML을 씁니다. `XplatformVersion`은 XPLATFORM 드라이버가 쓰는 값(`http://www.tobesoft.com/platform/dataset`, `ver="5000"`)이고, version을 `"4000"`으로 주면 `xplatform-xml-4000`으로 씁니다.
 
 ```ts
 import { parse, write, XapiRoot } from "@xapi-js/core";
@@ -588,6 +599,7 @@ const options: WireCodecOptions = {
 - `strict`: 알 수 없는 구조나 옵션을 엄격하게 처리합니다. 기본값은 `true`입니다.
 - `zlib`: encode 시 deflate하고 marker를 붙입니다. decode 시 marker가 있으면 inflate합니다.
 - `base64Whitespace`: Base64 값의 공백 처리 정책입니다.
+- `preserveRowState`: encode 시 `saveType`이 없으면 ALL로 써서 행 상태, original row, 삭제 행을 보냅니다. decode 시 `false`이면 original row를 버립니다.
 - `limits.payloadBytes`: 입력 payload 최대 크기
 - `limits.datasets`: Dataset 개수
 - `limits.rows`: Dataset row 개수

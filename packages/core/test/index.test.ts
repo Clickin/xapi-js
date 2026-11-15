@@ -32,8 +32,8 @@ describe("Index Tests", () => {
 		expect(NexaVersion.version).toBe("4000");
 
 		expect(XplatformVersion).toBeDefined();
-		expect(XplatformVersion.xmlns).toBe("http://www.tobesoft.com/platform/Dataset");
-		expect(XplatformVersion.version).toBe("4000");
+		expect(XplatformVersion.xmlns).toBe("http://www.tobesoft.com/platform/dataset");
+		expect(XplatformVersion.version).toBe("5000");
 	});
 
 	it("should have working integration", async () => {

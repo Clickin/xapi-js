@@ -123,7 +123,7 @@ describe("XapiRoot wire bridge", () => {
       encodeWire(value, "nexacro-binary-5000");
       throw new Error("expected binary internal types to fail");
     } catch (error) {
-      expect(error).toMatchObject({ class: "invalid-value", path: "" });
+      expect(error).toMatchObject({ class: "invalid-value", path: "value" });
     }
   });
   it("encodes XPlatform XML 5000 while retaining the 4000 profile", () => {

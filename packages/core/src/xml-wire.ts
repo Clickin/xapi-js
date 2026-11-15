@@ -1,5 +1,5 @@
-import { defaultType, emptyValue, normalizeForEncode, normalizeSourceCell, validateCanonical, wireType } from "./wire-common";
-import type { CanonicalCell, CanonicalColumn, CanonicalConstColumn, CanonicalDataset, CanonicalRowType, CanonicalValue, WireCodecOptions, WireProfile } from "./wire-types";
+import { decodeTypedCell, defaultType, emptyValue, finishDecodedValue, isKnownType, normalizeForEncode, textBlobCell, validateCanonical, wireScalar, wireSize, wireType } from "./wire-common";
+import type { CanonicalCell, CanonicalColumn, CanonicalConstColumn, CanonicalDataset, CanonicalRow, CanonicalRowType, CanonicalValue, WireCodecOptions, WireProfile } from "./wire-types";
 import { WireCodecError } from "./wire-types";
 
 type XmlElement = {
@@ -13,12 +13,6 @@ const XML_NAMESPACES: Record<Extract<WireProfile, "nexacro-xml-4000" | "xplatfor
   "nexacro-xml-4000": ["http://www.nexacroplatform.com/platform/dataset", "http://www.nexacro.com/platform/dataset"],
   "xplatform-xml-4000": ["http://www.tobesoft.com/platform/Dataset", "http://www.tobesoft.com/platform/dataset"],
   "xplatform-xml-5000": ["http://www.tobesoft.com/platform/Dataset", "http://www.tobesoft.com/platform/dataset"],
-};
-
-const XML_DEFAULT_SIZES: Record<string, string> = {
-  STRING: "32", CHAR: "32", SHORT: "4", USHORT: "4", INT: "4", UINT: "4", LONG: "8", ULONG: "8",
-  FLOAT: "4", DOUBLE: "8", DECIMAL: "16", BIGDECIMAL: "16", BOOLEAN: "2", DATE: "6", TIME: "9",
-  DATETIME: "17", BLOB: "256", FILE: "256",
 };
 
 function isXmlNameStart(code: number): boolean {
@@ -232,67 +226,25 @@ function validateStructure(root: XmlElement): void {
 }
 
 
-function xmlColumnType(type: string | undefined, profile: "nexacro-xml-4000" | "xplatform-xml-4000" | "xplatform-xml-5000"): string {
-  if (!type) return "UNDEFINED";
-  const normalized = defaultType(type);
-  switch (normalized) {
-    case "STRING":
-    case "CHAR": return "STRING";
-    case "BOOLEAN": return profile !== "nexacro-xml-4000" ? "BOOLEAN" : "INT";
-    case "SHORT":
-    case "USHORT":
-    case "INT":
-    case "UINT": return "INT";
-    case "LONG":
-    case "ULONG":
-    case "BIGDECIMAL": return "BIGDECIMAL";
-    case "FLOAT":
-    case "DOUBLE": return "DOUBLE";
-    case "BLOB":
-    case "FILE": return "BLOB";
-    case "DATE":
-    case "TIME":
-    case "DATETIME": return normalized;
-    default: return "UNDEFINED";
-  }
+/** A declared column type as the drivers report it: FLOAT reads as DOUBLE, DECIMAL and unknown types as UNDEFINED. */
+function xmlColumnType(type: string | undefined): string {
+  const upper = (type || "").toUpperCase();
+  if (upper === "") return "UNDEFINED";
+  if (upper === "FLOAT") return "DOUBLE";
+  if (upper === "DECIMAL" || !isKnownType(upper)) return "UNDEFINED";
+  return upper;
 }
 
-function xmlParameterType(type: string | undefined, profile: "nexacro-xml-4000" | "xplatform-xml-4000" | "xplatform-xml-5000"): string {
-  if (!type) return "STRING";
-  const normalized = xmlColumnType(type, profile);
-  return normalized === "UNDEFINED" ? "STRING" : normalized;
+/** A parameter type: no, DECIMAL or unknown type reads as STRING. */
+function xmlParameterType(type: string | undefined): string {
+  const upper = (type || "").toUpperCase();
+  if (upper === "FLOAT") return "DOUBLE";
+  if (upper === "" || upper === "DECIMAL" || !isKnownType(upper)) return "STRING";
+  return upper;
 }
-const DATETIME_COMPATIBILITY_VALUES: Record<string, string> = {
-  "not-a-datetime": "690190220012803000",
-};
 
 function xmlCell(value: string, type: string): CanonicalCell {
-  if (value === "") {
-    if (type === "INT") return { state: "value", lexical: "0" };
-    if (type === "DOUBLE") return { state: "value", lexical: "0.0" };
-    if (type === "STRING" || type === "UNDEFINED") return { state: "empty", lexical: "" };
-    return { state: "null", lexical: undefined };
-  }
-  if (type === "BLOB") {
-    try {
-      if (btoa(atob(value)) !== value) return { state: "null", lexical: undefined };
-    } catch {
-      return { state: "null", lexical: undefined };
-    }
-  }
-  if (type === "DATE") return /^\d{8}$/.test(value) ? { state: "value", lexical: value } : { state: "null", lexical: undefined };
-  if (type === "DATETIME") {
-    if (DATETIME_COMPATIBILITY_VALUES[value]) return { state: "value", lexical: DATETIME_COMPATIBILITY_VALUES[value] };
-    if (!/^\d{14}(?:\d{3})?$/.test(value)) return { state: "null", lexical: undefined };
-    return { state: "value", lexical: value.length === 14 ? `${value}000` : value };
-  }
-  if (type === "TIME") {
-    if (!/^\d{6}(?:\d{3})?$/.test(value)) return { state: "null", lexical: undefined };
-    return { state: "value", lexical: value.length === 6 ? `${value}000` : value };
-  }
-  if (type === "BIGDECIMAL" && !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.replace(/,/g, "").trim())) return { state: "null", lexical: undefined };
-  if (type === "BOOLEAN") return { state: "value", lexical: value };
-  return normalizeSourceCell(type, { state: "value", lexical: value });
+  return decodeTypedCell(value === "" ? { state: "empty", lexical: "" } : { state: "value", lexical: value }, type);
 }
 
 function rowType(value: string): CanonicalRowType {
@@ -327,9 +279,10 @@ export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xpl
         if (typeof parameter === "string" || parameter.name !== "Parameter") continue;
         const id = parameter.attributes.id || "";
         if (!id) throw new Error("Parameter.id is required");
-        const type = xmlParameterType(parameter.attributes.type, profile);
-        const cell = xmlCell(text(parameter), type);
-        out.parameters.push({ id, type, state: cell.state, lexical: cell.lexical, index: undefined, wire: undefined });
+        const type = xmlParameterType(parameter.attributes.type);
+        const textValue = text(parameter);
+        const cell = type === "BLOB" ? textBlobCell(textValue === "" ? { state: "empty", lexical: "" } : { state: "value", lexical: textValue }) : xmlCell(textValue, type);
+        out.parameters.push({ id, type, state: cell.state, lexical: cell.lexical });
       }
     }
 
@@ -352,6 +305,8 @@ export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xpl
       const dataset: CanonicalDataset = { id, columns: [], constColumns: [], rows: [], saveType: undefined, wire: undefined };
       const constants = new Map<string, CanonicalCell>();
       const columnById = new Map<string, CanonicalColumn>();
+      // The type each value is converted by: the declared type as written.
+      const wireTypes = new Map<string, string>();
       const info = firstElement(item, "ColumnInfo");
       let combinedIndex = 0;
       if (info) {
@@ -360,7 +315,9 @@ export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xpl
           if (typeof definition === "string" || definition.name !== "Column" && definition.name !== "ConstColumn") continue;
           const columnId = definition.attributes.id || "";
           if (!columnId) throw new Error(`${definition.name}.id is required`);
-          const type = xmlColumnType(definition.attributes.type, profile);
+          const type = xmlColumnType(definition.attributes.type);
+          const wireTypeName = (definition.attributes.type || "").toUpperCase();
+          wireTypes.set(columnId, wireTypeName);
           if (definition.name === "Column") {
             const column: CanonicalColumn = {
               id: columnId,
@@ -382,7 +339,11 @@ export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xpl
               size: undefined,
               encoding: undefined,
             });
-            constants.set(columnId, definition.attributes.value === undefined ? { state: "null", lexical: undefined } : xmlCell(definition.attributes.value, type));
+            // The drivers fail on a BLOB constant without a value attribute,
+            // which they write themselves for a null BLOB constant.
+            if (definition.attributes.value === undefined && type === "BLOB") throw new Error(`BLOB ConstColumn ${JSON.stringify(columnId)} has no value`);
+            constants.set(columnId, definition.attributes.value === undefined ? { state: "null" } : xmlCell(definition.attributes.value, wireTypeName));
+            columnById.set(columnId, { id: columnId, type, index: combinedIndex });
           }
           combinedIndex++;
         }
@@ -406,7 +367,7 @@ export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xpl
             if (child.name === "Col") {
               const column = columnById.get(child.attributes.id || "");
               if (!column) throw new Error(`column ${JSON.stringify(child.attributes.id || "")} is not declared`);
-              values[column.id] = xmlCell(deepText(child), column.type);
+              values[column.id] = xmlCell(deepText(child), wireTypes.get(column.id) || "");
               continue;
             }
             for (let cellIndex = 0; cellIndex < child.children.length; cellIndex++) {
@@ -414,39 +375,52 @@ export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xpl
               if (typeof cell === "string" || cell.name !== "Col") continue;
               const column = columnById.get(cell.attributes.id || "");
               if (!column) throw new Error(`column ${JSON.stringify(cell.attributes.id || "")} is not declared`);
-              values[column.id] = xmlCell(deepText(cell), column.type);
+              values[column.id] = xmlCell(deepText(cell), wireTypes.get(column.id) || "");
             }
           }
-          let originalValues: Record<string, CanonicalCell> | undefined;
+          let orgRow: CanonicalRow | null = null;
           const org = firstElement(sourceRow, "OrgRow");
-          if (org && type === "U" && options.preserveRowState !== false) {
-            originalValues = {};
+          if (org && type === "U") {
+            const saved: Record<string, CanonicalCell> = {};
+            for (let columnIndex = 0; columnIndex < dataset.columns.length; columnIndex++) saved[dataset.columns[columnIndex].id] = { state: "null" };
+            for (let constantIndex = 0; constantIndex < dataset.constColumns.length; constantIndex++) {
+              const constant = dataset.constColumns[constantIndex];
+              saved[constant.id] = constants.get(constant.id) || { state: "null" };
+            }
+            // A saved row whose cells are all null is no saved row.
+            let meaningful = false;
             for (let cellIndex = 0; cellIndex < org.children.length; cellIndex++) {
               const cell = org.children[cellIndex];
               if (typeof cell === "string" || cell.name !== "Col") continue;
               const column = columnById.get(cell.attributes.id || "");
               if (!column) throw new Error(`org column ${JSON.stringify(cell.attributes.id || "")} is not declared`);
-              originalValues[column.id] = xmlCell(deepText(cell), column.type);
+              const value = xmlCell(deepText(cell), wireTypes.get(column.id) || "");
+              saved[column.id] = value;
+              if (value.state !== "null") meaningful = true;
             }
-            for (let constantIndex = 0; constantIndex < dataset.constColumns.length; constantIndex++) {
-              const constant = dataset.constColumns[constantIndex];
-              if (!Object.prototype.hasOwnProperty.call(originalValues, constant.id)) originalValues[constant.id] = constants.get(constant.id) || { state: "null", lexical: undefined };
-            }
+            if (meaningful) orgRow = { type: "O", orgRow: null, values: saved };
           }
-          dataset.rows.push({ type, orgRow: originalValues && Object.keys(originalValues).length > 0 ? { type: "O", orgRow: null, values: originalValues } : null, values });
+          dataset.rows.push({ type, orgRow, values });
         }
       }
       out.datasets.push(dataset);
     }
     validateCanonical(out);
-    return out;
+    return finishDecodedValue(out);
   } catch (error) {
     if (error instanceof WireCodecError) throw error;
     throw new WireCodecError("malformed-input", error instanceof Error ? error.message : String(error), "wire");
   }
 }
 
-function escapeXml(value: string, encodeWhitespace: boolean): string {
+/**
+ * Escapes like the drivers' XmlCodec. XPLATFORM writes every character below
+ * U+0020 as a decimal reference and a space as &#32;; Nexacro escapes only
+ * the five predefined entities and writes tab, LF and CR as they are. Nexacro
+ * would also write other control characters raw, which no XML parser reads
+ * back, so they are rejected.
+ */
+function escapeXml(value: string, xplatform: boolean): string {
   let out = "";
   for (let index = 0; index < value.length; index++) {
     const character = value[index];
@@ -456,33 +430,56 @@ function escapeXml(value: string, encodeWhitespace: boolean): string {
     else if (character === ">") out += "&gt;";
     else if (character === '"') out += "&quot;";
     else if (character === "'") out += "&apos;";
-    else if (encodeWhitespace && character === "\t") out += "&#9;";
-    else if (encodeWhitespace && character === "\n") out += "&#10;";
-    else if (encodeWhitespace && character === "\r") out += "&#13;";
-    else if (code < 0x20 && character !== "\t" && character !== "\n" && character !== "\r") throw new Error(`invalid XML control character U+${code.toString(16).padStart(4, "0")}`);
+    else if (character === " ") out += xplatform ? "&#32;" : " ";
+    else if (code < 0x20 && xplatform) out += `&#${code};`;
+    else if (code < 0x20 && character !== "\t" && character !== "\n" && character !== "\r") throw new WireCodecError("invalid-value", `character U+${code.toString(16).toUpperCase().padStart(4, "0")} is not valid XML 1.0`, "value");
     else out += character;
   }
   return out;
 }
 
-function defaultSize(type: string): string {
-  return XML_DEFAULT_SIZES[defaultType(type)] || "32";
+function columnSize(size: string | undefined, type: string): string {
+  return size || wireSize(type);
 }
 
 function writeXmlColumn(lines: string[], column: { id: string; type: string; size?: string }, xplatform: boolean): void {
-  const type = wireType(column.type);
-  const blob = type === "blob";
-  lines.push(`\t\t\t<Column id="${escapeXml(column.id, xplatform)}" type="${type}" size="${column.size || defaultSize(column.type)}"${blob ? ' encrypt="base64"' : ""}/>`);
+  const blob = isBlob(column.type);
+  lines.push(`\t\t\t<Column id="${escapeXml(column.id, xplatform)}" type="${escapeXml(wireType(column.type), xplatform)}" size="${escapeXml(columnSize(column.size, column.type), xplatform)}"${blob ? ' encrypt="base64"' : ""}/>`);
 }
 
 function writeXmlConstant(lines: string[], column: CanonicalConstColumn, xplatform: boolean): void {
-  const type = wireType(column.type);
-  const blob = type === "blob";
-  const lexical = column.value && column.value.state !== "missing" && column.value.state !== "null" ? column.value.lexical || "" : undefined;
-  const start = `\t\t\t<ConstColumn id="${escapeXml(column.id, xplatform)}" type="${type}" size="${column.size || defaultSize(column.type)}"${blob ? ' encrypt="base64"' : ""}${lexical !== undefined ? ` value="${escapeXml(lexical, xplatform)}"` : ""}`;
-  lines.push(blob ? `${start}></ConstColumn>` : `${start}/>`);
+  const start = `\t\t\t<ConstColumn id="${escapeXml(column.id, xplatform)}" type="${escapeXml(wireType(column.type), xplatform)}" size="${escapeXml(columnSize(column.size, column.type), xplatform)}"`;
+  const cell = column.value;
+  if (!cell || cell.state !== "value" && cell.state !== "empty") {
+    lines.push(`${start}/>`);
+    return;
+  }
+  const blob = defaultType(column.type) === "BLOB";
+  const value = ` value="${escapeXml(cell.lexical || "", xplatform)}"`;
+  lines.push(blob ? `${start} encrypt="base64"${value}></ConstColumn>` : `${start}${value}/>`);
 }
 
+function isBlob(type: string): boolean {
+  return defaultType(type) === "BLOB";
+}
+
+function writeXmlCells(lines: string[], cells: Record<string, CanonicalCell>, columns: CanonicalColumn[], indent: string, xplatform: boolean, saved: boolean): void {
+  for (let columnIndex = 0; columnIndex < columns.length; columnIndex++) {
+    const column = columns[columnIndex];
+    let cell = cells[column.id];
+    if (!cell || cell.state === "missing" || cell.state === "null") {
+      // The drivers hold an unset BOOLEAN as false and write it as 0; a saved
+      // row the driver never filled has no cells at all.
+      if (saved || defaultType(column.type) !== "BOOLEAN") continue;
+      cell = { state: "value", lexical: "0" };
+    }
+    lines.push(`${indent}<Col id="${escapeXml(column.id, xplatform)}">${escapeXml(cell.lexical || "", xplatform)}</Col>`);
+  }
+}
+
+const XML_ROW_TYPES: Record<string, string> = { N: "", I: "insert", U: "update", D: "delete" };
+
+/** Writes X-API XML as the original drivers do, byte for byte. */
 export function encodeXmlWire(source: CanonicalValue, profile: "nexacro-xml-4000" | "xplatform-xml-4000" | "xplatform-xml-5000"): string {
   validateCanonical(source);
   const value = normalizeForEncode(source);
@@ -494,8 +491,10 @@ export function encodeXmlWire(source: CanonicalValue, profile: "nexacro-xml-4000
     lines.push("\t<Parameters>");
     for (let parameterIndex = 0; parameterIndex < value.parameters.length; parameterIndex++) {
       const parameter = value.parameters[parameterIndex];
-      const lexical = parameter.state === "missing" || parameter.state === "null" ? "" : parameter.lexical || "";
-      lines.push(`\t\t<Parameter id="${escapeXml(parameter.id, xplatform)}" type="${wireType(parameter.type)}">${escapeXml(lexical, xplatform)}</Parameter>`);
+      const scalar = wireScalar(parameter.type, parameter);
+      const start = `\t\t<Parameter id="${escapeXml(parameter.id, xplatform)}" type="${escapeXml(wireType(parameter.type), xplatform)}"`;
+      if (scalar === undefined) lines.push(`${start}/>`);
+      else lines.push(`${start}${isBlob(parameter.type) ? ' encrypt="base64"' : ""}>${escapeXml(scalar, xplatform)}</Parameter>`);
     }
     lines.push("\t</Parameters>");
   }
@@ -514,14 +513,14 @@ export function encodeXmlWire(source: CanonicalValue, profile: "nexacro-xml-4000
     lines.push("\t\t<Rows>");
     for (let rowIndex = 0; rowIndex < dataset.rows.length; rowIndex++) {
       const row = dataset.rows[rowIndex];
-      if (row.type === "O" || row.type === "D") continue;
-      const type = row.type === "I" ? ' type="insert"' : row.type === "U" ? ' type="update"' : "";
-      lines.push(`\t\t\t<Row${type}>`);
-      for (let columnIndex = 0; columnIndex < dataset.columns.length; columnIndex++) {
-        const column = dataset.columns[columnIndex];
-        const cell = row.values[column.id];
-        if (!cell || cell.state === "missing" || cell.state === "null") continue;
-        lines.push(`\t\t\t\t<Col id="${escapeXml(column.id, xplatform)}">${escapeXml(cell.lexical || "", xplatform)}</Col>`);
+      const type = XML_ROW_TYPES[(row.type || "N").toUpperCase()];
+      if (type === undefined) throw new WireCodecError("invalid-value", `invalid XML row type ${row.type}`, "value");
+      lines.push(`\t\t\t<Row${type ? ` type="${type}"` : ""}>`);
+      writeXmlCells(lines, row.values, dataset.columns, "\t\t\t\t", xplatform, false);
+      if (row.orgRow) {
+        lines.push("\t\t\t\t<OrgRow>");
+        writeXmlCells(lines, row.orgRow.values, dataset.columns, "\t\t\t\t\t", xplatform, true);
+        lines.push("\t\t\t\t</OrgRow>");
       }
       lines.push("\t\t\t</Row>");
     }

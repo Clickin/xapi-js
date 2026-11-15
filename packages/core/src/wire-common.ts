@@ -1,5 +1,6 @@
 import type { CanonicalCell, CanonicalDataset, CanonicalRow, CanonicalValue, SaveType, WireCodecOptions } from "./wire-types";
 import { WireCodecError } from "./wire-types";
+import { javaBigDecimal, javaDateLexical, javaFloating, javaInteger, sourceBoolean } from "./java-scalar";
 
 const KNOWN_TYPES: Record<string, true> = {
   STRING: true, CHAR: true, SHORT: true, USHORT: true, INT: true, UINT: true, LONG: true, ULONG: true,
@@ -11,12 +12,6 @@ const WIRE_SIZES: Record<string, string> = {
   FLOAT: "4", DOUBLE: "8", DECIMAL: "16", BIGDECIMAL: "16", BOOLEAN: "2", DATE: "6", TIME: "9",
   DATETIME: "17", BLOB: "256", FILE: "256",
 };
-const INTEGER_RANGES: Record<string, readonly [bigint, bigint]> = {
-  SHORT: [-32768n, 32767n], USHORT: [-32768n, 32767n],
-  INT: [-2147483648n, 2147483647n], UINT: [-2147483648n, 2147483647n],
-  LONG: [-9223372036854775808n, 9223372036854775807n], ULONG: [-9223372036854775808n, 9223372036854775807n],
-};
-const DECIMAL_PATTERN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 const UTF8_ENCODER = new TextEncoder();
 
 export function emptyValue(): CanonicalValue {
@@ -69,71 +64,11 @@ export function wireSize(type?: string): string {
   return WIRE_SIZES[defaultType(type)] || "32";
 }
 
-function sourceBoolean(value: string): boolean {
-  return /^(?:true|yes|y|on|1)$/i.test(value);
-}
-
-function normalizeInteger(value: string, type: string): string {
-  const stripped = value.trim().replace(/,/g, "");
-  let normalized: string;
-  if (type !== "LONG" && type !== "ULONG" && /^0x[0-9a-f]+$/i.test(stripped)) normalized = BigInt(stripped).toString();
-  else {
-    if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(stripped)) return "0";
-    const match = /^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(stripped);
-    if (!match) return "0";
-    const sign = match[1] === "-" ? "-" : "";
-    const digits = `${match[2] || "0"}${match[3] || ""}`.replace(/^0+/, "") || "0";
-    const decimalPlaces = (match[3]?.length || 0) - Number(match[4] || 0);
-    let integer: string;
-    if (decimalPlaces <= 0) integer = digits + "0".repeat(-decimalPlaces);
-    else if (digits.length <= decimalPlaces) integer = "0";
-    else integer = digits.slice(0, -decimalPlaces);
-    integer = integer.replace(/^0+/, "") || "0";
-    normalized = integer === "0" ? "0" : sign + integer;
-  }
-  const range = INTEGER_RANGES[type];
-  const parsed = BigInt(normalized);
-  return parsed < range[0] || parsed > range[1] ? "0" : normalized;
-}
-
-function goFloat(value: string, bits: 32 | 64): string {
-  const stripped = value.trim().replace(/,/g, "");
-  let number: number;
-  if (stripped === "Infinity" || stripped === "+Infinity") number = Infinity;
-  else if (stripped === "-Infinity") number = -Infinity;
-  else number = Number(stripped);
-  if (Number.isNaN(number)) return stripped.toLowerCase() === "nan" ? "NaN" : "0.0";
-  if (bits === 32) number = Math.fround(number);
-  if (number === Infinity) return "Infinity";
-  if (number === -Infinity) return "-Infinity";
-  let formatted = String(number);
-  if (formatted.includes("e")) {
-    const exponent = /e([+-]?)(\d+)$/.exec(formatted);
-    if (exponent) formatted = formatted.slice(0, exponent.index) + `e${exponent[1] || "+"}${Number(exponent[2])}`;
-  }
-  if (!/[.eE]/.test(formatted)) formatted += ".0";
-  return formatted;
-}
-
-function normalizeDecimal(value: string): string {
-  let stripped = value.trim().replace(/,/g, "");
-  if (!DECIMAL_PATTERN.test(stripped)) return "0";
-  let exponent = "";
-  const exponentAt = stripped.search(/[eE]/);
-  if (exponentAt >= 0) {
-    exponent = stripped.slice(exponentAt);
-    stripped = stripped.slice(0, exponentAt);
-  }
-  let sign = "";
-  if (stripped[0] === "+" || stripped[0] === "-") {
-    sign = stripped[0] === "-" ? "-" : "";
-    stripped = stripped.slice(1);
-  }
-  const dot = stripped.indexOf(".");
-  const integer = (dot < 0 ? stripped : stripped.slice(0, dot)).replace(/^0+/, "") || "0";
-  return sign + integer + (dot < 0 ? "" : stripped.slice(dot)) + exponent;
-}
-
+/**
+ * Converts a value as the drivers' StringTypeConverter does before writing:
+ * BOOLEAN as 1/0, numbers and dates parsed and printed like Java. An invalid
+ * BIGDECIMAL or date becomes null.
+ */
 export function normalizeSourceCell(type: string, cell: CanonicalCell): CanonicalCell {
   if (cell.state !== "value") return { state: cell.state, lexical: cell.lexical };
   const lexical = cell.lexical || "";
@@ -143,14 +78,51 @@ export function normalizeSourceCell(type: string, cell: CanonicalCell): Canonica
     case "SHORT":
     case "USHORT":
     case "INT":
-    case "UINT":
+    case "UINT": return { state: "value", lexical: javaInteger(lexical, 32) };
     case "LONG":
-    case "ULONG": return { state: "value", lexical: normalizeInteger(lexical, normalizedType) };
-    case "FLOAT": return { state: "value", lexical: goFloat(lexical, 32) };
-    case "DOUBLE": return { state: "value", lexical: goFloat(lexical, 64) };
+    case "ULONG": return { state: "value", lexical: javaInteger(lexical, 64) };
+    case "FLOAT": return { state: "value", lexical: javaFloating(lexical, 32) };
+    case "DOUBLE": return { state: "value", lexical: javaFloating(lexical, 64) };
     case "DECIMAL":
-    case "BIGDECIMAL": return { state: "value", lexical: normalizeDecimal(lexical) };
+    case "BIGDECIMAL": {
+      const decimal = javaBigDecimal(lexical);
+      return decimal === undefined ? { state: "null" } : { state: "value", lexical: decimal };
+    }
+    case "DATE":
+    case "TIME":
+    case "DATETIME": {
+      const date = javaDateLexical(lexical, normalizedType);
+      return date === undefined ? { state: "null" } : { state: "value", lexical: date };
+    }
     default: return { state: cell.state, lexical: cell.lexical };
+  }
+}
+
+/**
+ * Converts only BOOLEAN constants, which the drivers always write as 1 or 0
+ * (empty and null as 0); other constant values are written as given.
+ */
+export function normalizeSourceConstCell(type: string, cell: CanonicalCell): CanonicalCell {
+  if (cell.state === "missing" || defaultType(type) !== "BOOLEAN") return { state: cell.state, lexical: cell.lexical };
+  return { state: "value", lexical: sourceBoolean(cell.lexical || "") ? "1" : "0" };
+}
+
+/**
+ * The text a text format writes for a cell of the type; undefined when the
+ * drivers write nothing. An unset BOOLEAN is 0.
+ */
+export function wireScalar(type: string, cell: CanonicalCell): string | undefined {
+  const normalized = defaultType(type);
+  const text = normalized === "STRING" || normalized === "CHAR" || normalized === "FILE" || normalized === "BLOB";
+  if (cell.state === "empty" && text) return "";
+  if (cell.state !== "value") return normalized === "BOOLEAN" ? "0" : undefined;
+  if (cell.lexical) return cell.lexical;
+  if (text) return "";
+  switch (normalized) {
+    case "SHORT": case "USHORT": case "INT": case "UINT": case "LONG": case "ULONG": return "0";
+    case "FLOAT": case "DOUBLE": return "0.0";
+    case "BOOLEAN": return "0";
+    default: return undefined;
   }
 }
 
@@ -164,6 +136,7 @@ function normalizedRow(row: CanonicalRow, columns: CanonicalDataset["columns"]):
   return { type: row.type, orgRow: row.orgRow ? normalizedRow(row.orgRow, columns) : null, values };
 }
 
+/** Converts the values like the drivers and selects rows by saveType. */
 export function normalizeForEncode(value: CanonicalValue): CanonicalValue {
   const parameters = new Array(value.parameters.length);
   for (let index = 0; index < value.parameters.length; index++) {
@@ -181,7 +154,7 @@ export function normalizeForEncode(value: CanonicalValue): CanonicalValue {
         id: column.id,
         type: column.type,
         index: column.index,
-        value: column.value ? normalizeSourceCell(column.type, column.value) : undefined,
+        value: normalizeSourceConstCell(column.type, column.value || { state: "null" }),
         size: column.size,
         encoding: column.encoding,
       };
@@ -200,23 +173,38 @@ export function normalizeForEncode(value: CanonicalValue): CanonicalValue {
   return applySaveTypes({ parameters, datasets, saveType: value.saveType, wire: value.wire });
 }
 
+/**
+ * The original drivers' row selection. A dataset without saveType inherits
+ * the root's; with neither, the drivers use NORMAL (2), which writes every live
+ * row as a plain row. Deleted rows live in the driver's removed-row list, so
+ * they are always written after the live rows, and only for ALL (1), DELETED
+ * (4) and CHANGED (5). An updated row starts as a copy of its original row, so
+ * a value it leaves out keeps the original value; written with its original
+ * row but without a known one, it gets an empty one.
+ */
 function selectedRows(dataset: CanonicalDataset, rootSaveType: SaveType | undefined): CanonicalRow[] {
-  const saveType = dataset.saveType || rootSaveType || 0;
-  if (saveType === 0 || saveType === 1) return dataset.rows;
-  const rows: CanonicalRow[] = [];
+  const saveType = dataset.saveType || rootSaveType || 2;
+  const live: CanonicalRow[] = [];
+  const removed: CanonicalRow[] = [];
   for (let index = 0; index < dataset.rows.length; index++) {
-    const row = dataset.rows[index];
-    const type = row.type || "N";
-    const include = saveType === 2 ? type !== "D" : saveType === 3 ? type === "I" || type === "U" : saveType === 4 ? type === "D" : type !== "N";
-    if (include) rows.push(saveType === 2 ? { type: "N", orgRow: null, values: row.values } : row);
+    const source = dataset.rows[index];
+    const type = ((source.type || "N").toUpperCase() || "N") as CanonicalRow["type"];
+    if (type === "O") continue;
+    if (type === "D") {
+      if (saveType === 1 || saveType === 4 || saveType === 5) removed.push({ type, orgRow: null, values: source.values });
+      continue;
+    }
+    const include = saveType === 1 || saveType === 2 || (saveType === 3 || saveType === 5) && type !== "N";
+    if (!include) continue;
+    const values = type === "U" && source.orgRow ? { ...source.orgRow.values, ...source.values } : source.values;
+    if (saveType === 2) live.push({ type: "N", orgRow: null, values });
+    else if (type === "U") live.push({ type, orgRow: source.orgRow || { type: "O", orgRow: null, values: {} }, values });
+    else live.push({ type, orgRow: null, values });
   }
-  return rows;
+  return live.concat(removed);
 }
 
 export function applySaveTypes(value: CanonicalValue): CanonicalValue {
-  let needsFiltering = Boolean(value.saveType);
-  for (let index = 0; !needsFiltering && index < value.datasets.length; index++) needsFiltering = Boolean(value.datasets[index].saveType);
-  if (!needsFiltering) return value;
   const datasets = new Array(value.datasets.length);
   for (let index = 0; index < value.datasets.length; index++) {
     const dataset = value.datasets[index];
@@ -225,11 +213,10 @@ export function applySaveTypes(value: CanonicalValue): CanonicalValue {
       columns: dataset.columns,
       constColumns: dataset.constColumns,
       rows: selectedRows(dataset, value.saveType),
-      saveType: dataset.saveType,
       wire: dataset.wire,
     };
   }
-  return { parameters: value.parameters, datasets, saveType: value.saveType, wire: value.wire };
+  return { parameters: value.parameters, datasets, wire: value.wire };
 }
 
 function validBase64(value: string): boolean {
@@ -305,4 +292,94 @@ export function checkLimits(value: CanonicalValue, options: WireCodecOptions, pa
       }
     }
   }
+}
+
+function validDecodeBase64(value: string): boolean {
+  return /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value);
+}
+
+/**
+ * A decoded value as the drivers' typed setters convert it: numbers and dates
+ * parsed like Java, BOOLEAN as true/false, FLOAT as a double. An invalid
+ * BIGDECIMAL, date or BLOB reads as null; an empty BLOB stays empty.
+ */
+export function decodeTypedCell(cell: CanonicalCell, type: string): CanonicalCell {
+  if (cell.state === "null" || cell.state === "missing") return cell;
+  let value = cell.lexical || "";
+  const upper = (type || "").toUpperCase();
+  switch (upper) {
+    case "CHAR": case "SHORT": case "USHORT": case "INT": case "UINT":
+      value = javaInteger(value, 32);
+      break;
+    case "LONG": case "ULONG":
+      value = javaInteger(value, 64);
+      break;
+    case "FLOAT": case "DOUBLE":
+      value = javaFloating(value, 64);
+      break;
+    case "BIGDECIMAL": {
+      const decimal = javaBigDecimal(value);
+      if (decimal === undefined) return { state: "null" };
+      value = decimal;
+      break;
+    }
+    case "DATE": case "TIME": case "DATETIME": {
+      const date = javaDateLexical(value, upper);
+      if (date === undefined) return { state: "null" };
+      value = date;
+      break;
+    }
+    case "BOOLEAN":
+      value = sourceBoolean(value) ? "true" : "false";
+      break;
+    case "BLOB": case "FILE":
+      if (value === "") return { state: "empty", lexical: "" };
+      if (!validDecodeBase64(value)) return { state: "null" };
+      break;
+  }
+  if (cell.state === "empty" && value === "") return { state: "empty", lexical: "" };
+  return { state: "value", lexical: value };
+}
+
+/**
+ * How the drivers read a BLOB parameter in the text formats: Variable.set
+ * converts the text to its bytes without decoding base64, so the parameter
+ * holds the bytes of the wire text itself.
+ */
+export function textBlobCell(cell: CanonicalCell): CanonicalCell {
+  if (cell.state !== "value" && cell.state !== "empty") return cell;
+  const text = cell.lexical || "";
+  if (text === "") return { state: "empty", lexical: "" };
+  const bytes = UTF8_ENCODER.encode(text);
+  let binary = "";
+  for (let index = 0; index < bytes.length; index++) binary += String.fromCharCode(bytes[index]);
+  return { state: "value", lexical: btoa(binary) };
+}
+
+/**
+ * What every driver decode shares: deleted rows go to the driver's
+ * removed-row list, so they come after all live rows, and a saved row
+ * holding only nulls is reported as no saved row.
+ */
+export function finishDecodedValue(value: CanonicalValue): CanonicalValue {
+  for (let datasetIndex = 0; datasetIndex < value.datasets.length; datasetIndex++) {
+    const dataset = value.datasets[datasetIndex];
+    const live: CanonicalRow[] = [];
+    const removed: CanonicalRow[] = [];
+    for (let rowIndex = 0; rowIndex < dataset.rows.length; rowIndex++) {
+      const row = dataset.rows[rowIndex];
+      if (row.orgRow) {
+        let meaningful = false;
+        for (const id in row.orgRow.values) {
+          const state = row.orgRow.values[id].state;
+          if (state !== "null" && state !== "missing") meaningful = true;
+        }
+        if (!meaningful) row.orgRow = null;
+      }
+      if (row.type === "D") removed.push(row);
+      else live.push(row);
+    }
+    dataset.rows = live.concat(removed);
+  }
+  return value;
 }

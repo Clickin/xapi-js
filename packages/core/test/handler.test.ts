@@ -273,7 +273,7 @@ describe("Xapi Handler Tests", () => {
     const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('id="numberParam"');
-    expect(xmlOutput).toContain('type="INT"');
+    expect(xmlOutput).toContain('type="int"');
     expect(xmlOutput).toContain('>42</Parameter>');
   });
 
@@ -323,8 +323,9 @@ describe("Xapi Handler Tests", () => {
     root.addDataset(dataset);
     const xmlOutput = write(root);
 
-    expect(xmlOutput).toContain('<Col id="col1"');
-    expect(xmlOutput).toContain('/>'); // self-closing tag
+    // The drivers write no Col element for a null cell.
+    expect(xmlOutput).not.toContain('<Col id="col1"');
+    expect(xmlOutput).toContain('<Row>');
   });
 
   it("should write column with null value as self-closing", async () => {
@@ -339,8 +340,9 @@ describe("Xapi Handler Tests", () => {
 
     const xmlOutput = write(root);
 
-    expect(xmlOutput).toContain('<Col id="col1"');
-    expect(xmlOutput).toContain('/>'); // self-closing tag
+    // The drivers write no Col element for a null cell.
+    expect(xmlOutput).not.toContain('<Col id="col1"');
+    expect(xmlOutput).toContain('<Row>');
   });
 
   it("should handle parameters with undefined values", async () => {
@@ -441,8 +443,7 @@ describe("Xapi Handler Tests", () => {
     const root = new XapiRoot();
     const xmlOutput = write(root);
 
-    expect(xmlOutput).toContain('xmlns="http://www.tobesoft.com/platform/Dataset"');
-    expect(xmlOutput).toContain('version="4000"');
+    expect(xmlOutput).toContain('<Root xmlns="http://www.tobesoft.com/platform/dataset" ver="5000">');
   });
 
   it("should handle CDATA values in columns", async () => {
@@ -757,8 +758,9 @@ describe("Xapi Handler Tests", () => {
     const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('id="timeParam"');
-    expect(xmlOutput).toContain('type="TIME"');
-    expect(xmlOutput).toContain('>143022</Parameter>');
+    expect(xmlOutput).toContain('type="time"');
+    // The drivers write TIME as HHmmssSSS.
+    expect(xmlOutput).toContain('>143022000</Parameter>');
   });
 
   it("should handle parameter with number value in write (specific test for line 192)", async () => {
@@ -772,7 +774,7 @@ describe("Xapi Handler Tests", () => {
     const xmlOutput = write(root);
 
     expect(xmlOutput).toContain('id="testNumberParam"');
-    expect(xmlOutput).toContain('type="INT"');
+    expect(xmlOutput).toContain('type="int"');
     expect(xmlOutput).toContain('>12345</Parameter>');
   });
 
@@ -843,10 +845,8 @@ describe("Xapi Handler Tests", () => {
     dataset.rows[0].cols.push({ id: "unknownCol", value: "testValue" });
     root.addDataset(dataset);
 
-    const xmlOutput = write(root);
-
-    expect(xmlOutput).toContain('type="UNKNOWN"');
-    expect(xmlOutput).toContain('testValue');
+    // The drivers have no such type; the writer rejects it.
+    expect(() => write(root)).toThrow(/unsupported column type UNKNOWN/);
   });
 
   it("should throw error at Column type mismatch", async () => {
@@ -935,8 +935,8 @@ describe("handler branches", async () => {
         <Col id="floatCol">3.14</Col>
         <Col id="decimalCol">99.99</Col>
         <Col id="dateCol">20230615</Col>
-        <Col id="datetimeCol">20230615120000</Col>
-        <Col id="timeCol">120000</Col>
+        <Col id="datetimeCol">20230615120000000</Col>
+        <Col id="timeCol">120000000</Col>
         <Col id="blobCol">dGVzdA==</Col>
         <Col id="stringCol">test</Col>
         <Col id="defaultCol">default value</Col>
@@ -1050,8 +1050,8 @@ describe("convertToString", async () => {
     expect(xmlString).toContain('<Col id="floatCol">3.14</Col>');
     expect(xmlString).toContain('<Col id="decimalCol">99.99</Col>');
     expect(xmlString).toContain('<Col id="dateCol">20230615</Col>');
-    expect(xmlString).toContain('<Col id="datetimeCol">20230615120000</Col>');
-    expect(xmlString).toContain('<Col id="timeCol">120000</Col>');
+    expect(xmlString).toContain('<Col id="datetimeCol">20230615120000000</Col>');
+    expect(xmlString).toContain('<Col id="timeCol">120000000</Col>');
     expect(xmlString).toContain('<Col id="blobCol">dGVzdA==</Col>'); // "test" in base64
     expect(xmlString).toContain('<Col id="stringCol">test</Col>');
   });
@@ -1074,7 +1074,8 @@ describe("writeString", () => {
     xapiRoot.addDataset(dataset);
 
     const result = write(xapiRoot);
-    expect(result).toContain('<ConstColumn id="emptyConstCol" size="0" type="STRING" value=""/>');
+    // A null constant has no value attribute; size 0 is written as given.
+    expect(result).toContain('<ConstColumn id="emptyConstCol" type="string" size="0"/>');
   })
   describe("parse", async () => {
     it("should throw when no dataset id is provided", async () => {
@@ -1185,7 +1186,8 @@ describe("writeString", () => {
   it("writes datasets with no column metadata", () => {
     const root = new XapiRoot();
     root.addDataset(new Dataset("empty"));
-    expect(write(root)).not.toContain("<ColumnInfo>");
+    // The drivers always write ColumnInfo and Rows.
+    expect(write(root)).toContain("\t\t<ColumnInfo>\n\t\t</ColumnInfo>\n\t\t<Rows>\n\t\t</Rows>\n");
   });
 
   it("writes Parameter values as body text and reads them back unchanged", () => {

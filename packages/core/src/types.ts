@@ -118,11 +118,12 @@ export interface XapiVersion {
 }
 
 /**
- * Xplatform version definition for X-API XML.
+ * Xplatform version definition for X-API XML: the namespace and version the
+ * XPLATFORM driver writes.
  */
 export const XplatformVersion = {
-  xmlns: "http://www.tobesoft.com/platform/Dataset",
-  version: "4000"
+  xmlns: "http://www.tobesoft.com/platform/dataset",
+  version: "5000"
 } as const;
 
 /**

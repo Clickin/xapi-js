@@ -50,7 +50,6 @@ function operation(request) {
   try {
     if (request.operation === "encode") {
       if (!request.value) return { ok: false, error: { class: "invalid-request", path: "value" } };
-      if ("saveType" in request.value) throw new WireCodecError("malformed-input", "saveType is not supported");
       const bytes = encodeValue(request.value, request.profile, options);
       return { ok: true, value: request.value, output: { encoding: "base64", data: bytes.toString("base64") } };
     }

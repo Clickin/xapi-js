@@ -115,7 +115,7 @@ describe('xapiFetch', () => {
     });
 
     expect(response.datasets.output).toEqual([{ id: 1, amount: 12.5 }]);
-    expect(fetchMock.mock.calls[0][1]?.body).toContain('type="INT"');
+    expect(fetchMock.mock.calls[0][1]?.body).toContain('type="int"');
   });
 
   it('should use the operation codec for JSON wire requests and responses', async () => {

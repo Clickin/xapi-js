@@ -40,11 +40,11 @@ describe("XAPI schema", () => {
     };
 
     const xml = write(encodeRoot(schema, data));
-    expect(xml).toContain('id="id" size="10" type="INT"');
-    expect(xml).toContain('id="balance" size="30" type="BIGDECIMAL"');
-    expect(xml).toContain('id="score" size="20" type="FLOAT"');
-    expect(xml).toContain('id="ratio" size="20" type="DECIMAL"');
-    expect(xml).toContain('id="name" size="100" type="STRING"');
+    expect(xml).toContain('id="id" type="int" size="10"');
+    expect(xml).toContain('id="balance" type="bigdecimal" size="30"');
+    expect(xml).toContain('id="score" type="float" size="20"');
+    expect(xml).toContain('id="ratio" type="bigdecimal" size="20"');
+    expect(xml).toContain('id="name" type="string" size="100"');
 
     const decoded = decodeRoot(schema, parse(xml));
     expect(decoded.parameters).toEqual({ ErrorCode: 0, ErrorMsg: "success" });

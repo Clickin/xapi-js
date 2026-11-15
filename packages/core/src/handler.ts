@@ -1,6 +1,7 @@
-import { Col, ColumnType, InvalidXmlError, NexaVersion, Parameter, RowType, XapiOptions, XapiValueType } from "./types";
-import { _unescapeXml, convertToColumnType, convertToString, dateToString, normalizeColumnType, parseXml, uint8ArrayToBase64, XmlNode, XmlStringBuilder } from "./utils";
+import { ColumnType, InvalidXmlError, NexaVersion, RowType, XapiOptions, XapiValueType } from "./types";
+import { _unescapeXml, convertToColumnType, normalizeColumnType, parseXml, XmlNode } from "./utils";
 import { Dataset, XapiRoot } from "./xapi-data";
+import { encodeXapiWire } from "./xapi-wire";
 
 const defaultOptions: XapiOptions = {
   xapiVersion: NexaVersion,
@@ -137,72 +138,15 @@ function parseParameters(parametersElement: XmlNode, xapiRoot: XapiRoot): void {
   }
 }
 
+/**
+ * Writes X-API XML as the original drivers do, byte for byte. A TOBESOFT
+ * namespace writes like the XPLATFORM driver (ver 5000 unless the version is
+ * "4000"), any other like the Nexacro driver. Row types, original rows and
+ * deleted rows are written (saveType ALL).
+ */
 export function write(root: XapiRoot): string {
-  const builder = new XmlStringBuilder();
-  builder.writeDeclaration("1.0", "UTF-8");
-  builder.writeStartElement("Root", { xmlns: _options.xapiVersion?.xmlns || NexaVersion.xmlns, version: _options.xapiVersion?.version || NexaVersion.version });
-  if (root.parameterSize() > 0) writeParameters(builder, root.getParameters());
-  if (root.datasetSize() > 0) {
-    builder.writeStartElement("Datasets");
-    const datasets = root.getDatasets();
-    for (let index = 0; index < datasets.length; index++) writeDataset(builder, datasets[index]);
-    builder.writeEndElement("Datasets");
-  }
-  builder.writeEndElement("Root");
-  return builder.toString();
-}
-
-function writeParameters(builder: XmlStringBuilder, parameters: Parameter[]): void {
-  builder.writeStartElement("Parameters");
-  for (let index = 0; index < parameters.length; index++) {
-    const parameter = parameters[index];
-    let value: string | undefined;
-    if (typeof parameter.value === "string") value = parameter.value;
-    else if (parameter.value instanceof Date) value = dateToString(parameter.value, parameter.type as Extract<ColumnType, "DATE" | "DATETIME" | "TIME">);
-    else if (parameter.value instanceof Uint8Array) value = uint8ArrayToBase64(parameter.value);
-    else if (parameter.value !== undefined) value = String(parameter.value);
-    const attributes = { id: parameter.id, type: parameter.type !== undefined ? normalizeColumnType(parameter.type) : undefined };
-    if (value === undefined) builder.writeStartElement("Parameter", attributes, true);
-    else builder.writeElementWithText("Parameter", attributes, value);
-  }
-  builder.writeEndElement("Parameters");
-}
-
-function writeDataset(builder: XmlStringBuilder, dataset: Dataset): void {
-  builder.writeStartElement("Dataset", { id: dataset.id });
-  if (dataset.constColumnSize() > 0 || dataset.columnSize() > 0) {
-    builder.writeStartElement("ColumnInfo");
-    const constants = dataset.getConstColumns();
-    for (let index = 0; index < constants.length; index++) {
-      const column = constants[index];
-      builder.writeStartElement("ConstColumn", { id: column.id, size: String(column.size), type: normalizeColumnType(column.type), value: column.value !== undefined ? String(column.value) : "" }, true);
-    }
-    const columns = dataset.getColumns();
-    for (let index = 0; index < columns.length; index++) {
-      const column = columns[index];
-      builder.writeStartElement("Column", { id: column.id, size: String(column.size), type: normalizeColumnType(column.type) }, true);
-    }
-    builder.writeEndElement("ColumnInfo");
-  }
-  builder.writeStartElement("Rows");
-  const rows = dataset.getRows();
-  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
-    const row = rows[rowIndex];
-    builder.writeStartElement("Row", { type: row.type || undefined });
-    for (let columnIndex = 0; columnIndex < row.cols.length; columnIndex++) writeColumn(builder, dataset, row.cols[columnIndex]);
-    if (row.orgRow?.length) {
-      builder.writeStartElement("OrgRow");
-      for (let columnIndex = 0; columnIndex < row.orgRow.length; columnIndex++) writeColumn(builder, dataset, row.orgRow[columnIndex]);
-      builder.writeEndElement("OrgRow");
-    }
-    builder.writeEndElement("Row");
-  }
-  builder.writeEndElement("Rows");
-  builder.writeEndElement("Dataset");
-}
-
-function writeColumn(builder: XmlStringBuilder, dataset: Dataset, col: Col): void {
-  if (col.value !== undefined && col.value !== null) {
-    builder.writeElementWithText("Col", { id: col.id }, convertToString(col.value, dataset.getColumnInfo(col.id)!!.type));
-  } else builder.writeStartElement("Col", { id: col.id }, true);
+  const version = _options.xapiVersion || NexaVersion;
+  const xplatform = version.xmlns.toLowerCase().includes("tobesoft");
+  const profile = !xplatform ? "nexacro-xml-4000" : version.version === "4000" ? "xplatform-xml-4000" : "xplatform-xml-5000";
+  return new TextDecoder().decode(encodeXapiWire(root, profile));
 }

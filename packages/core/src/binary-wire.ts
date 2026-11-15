@@ -1,4 +1,5 @@
-import { defaultType, normalizeForEncode, validateCanonical } from "./wire-common";
+import { defaultType, finishDecodedValue, normalizeForEncode, normalizeSourceCell, validateCanonical, wireSize } from "./wire-common";
+import { formatJavaDate, javaDate } from "./java-scalar";
 import type { CanonicalCell, CanonicalDataset, CanonicalRow, CanonicalRowType, CanonicalValue } from "./wire-types";
 import { WireCodecError } from "./wire-types";
 
@@ -92,7 +93,9 @@ class BinaryWriter {
   i32(value: number): void { this.u32(value >>> 0); }
   f64(value: number): void {
     this.ensure(8);
-    this.view.setFloat64(this.offset, value, false);
+    // Double.doubleToLongBits writes one canonical NaN.
+    if (Number.isNaN(value)) this.view.setUint32(this.offset, 0x7ff80000, false), this.view.setUint32(this.offset + 4, 0, false);
+    else this.view.setFloat64(this.offset, value, false);
     this.offset += 8;
   }
   write(value: Uint8Array): void {
@@ -155,16 +158,44 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+/**
+ * Formats a double like the reference reads it (Go strconv 'g' shortest,
+ * with ".0" added when there is no fraction or exponent).
+ */
+function goDouble(value: number): string {
+  if (Number.isNaN(value)) return "NaN";
+  if (!Number.isFinite(value)) return value > 0 ? "+Inf.0" : "-Inf.0";
+  if (value === 0) return Object.is(value, -0) ? "-0.0" : "0.0";
+  const [mantissa, exponentText] = Math.abs(value).toExponential().split("e");
+  const exponent = Number(exponentText);
+  const digits = mantissa.replace(".", "");
+  const sign = value < 0 ? "-" : "";
+  let text: string;
+  if (exponent < -4 || exponent >= 6) {
+    text = `${sign}${mantissa}e${exponent < 0 ? "-" : "+"}${String(Math.abs(exponent)).padStart(2, "0")}`;
+  } else if (exponent < 0) {
+    text = `${sign}0.${"0".repeat(-exponent - 1)}${digits}`;
+  } else if (digits.length <= exponent + 1) {
+    text = `${sign}${digits}${"0".repeat(exponent + 1 - digits.length)}`;
+  } else {
+    text = `${sign}${digits.slice(0, exponent + 1)}.${digits.slice(exponent + 1)}`;
+  }
+  return /[.eN]/.test(text) ? text : `${text}.0`;
+}
+
+/** A value read as the type: dates as the column's date type, BLOB text as its bytes. */
 function binaryCell(value: BinaryValue, type = variantType(value.tag)): CanonicalCell {
-  if (value.tag === 0 || value.tag === 1) return { state: "empty", lexical: "" };
-  if (value.value instanceof Uint8Array) return { state: "value", lexical: bytesToBase64(value.value) };
+  if (value.tag === 0 || value.tag === 1) return { state: "null" };
+  if (value.value instanceof Uint8Array) return value.value.length ? { state: "value", lexical: bytesToBase64(value.value) } : { state: "empty", lexical: "" };
   if (typeof value.value === "boolean") return { state: "value", lexical: String(value.value) };
   if (typeof value.value === "number") {
-    return { state: "value", lexical: value.tag === 41 ? String(Math.trunc(value.value)) : String(value.value) };
+    if (value.tag === 41) return { state: "value", lexical: formatJavaDate(Math.trunc(value.value), type) };
+    if (value.tag === 4) return { state: "value", lexical: goDouble(value.value) };
+    return { state: "value", lexical: String(value.value) };
   }
   const lexical = String(value.value ?? "");
   if (lexical === "") return { state: "empty", lexical: "" };
-  if (type === "BLOB") return { state: "value", lexical: bytesToBase64(UTF8_ENCODER.encode(lexical)) };
+  if (type === "BLOB" || type === "FILE") return { state: "value", lexical: bytesToBase64(UTF8_ENCODER.encode(lexical)) };
   return { state: "value", lexical };
 }
 
@@ -176,7 +207,7 @@ function readVariables(reader: BinaryReader, value: CanonicalValue): void {
     const id = block.shortString();
     const tag = block.u16();
     const cell = binaryCell(readValue(block, tag));
-    value.parameters.push({ id, type: variantType(tag), state: cell.state, lexical: cell.lexical, index: index || undefined, wire: undefined });
+    value.parameters.push({ id, type: variantType(tag), state: cell.state, lexical: cell.lexical });
   }
   if (block.remaining) throw new Error("trailing bytes in PlatformBinary variable block");
 }
@@ -212,13 +243,14 @@ function readDataset(reader: BinaryReader, value: CanonicalValue): void {
     const size = header.u16();
     const attribute = header.u16();
     if ((attribute & 0xf000) === 0x6000) header.shortString();
-    dataset.columns.push({ id: columnId, type, index, size: size ? String(size) : undefined, encoding: undefined, prop: undefined, sumtext: undefined });
+    void size;
+    dataset.columns.push({ id: columnId, type, index: constantCount + index });
   }
   if (header.remaining) throw new Error("trailing bytes in PlatformBinary dataset header");
   const constColumns = new Array(constants.length);
   for (let index = 0; index < constants.length; index++) {
     const constant = constants[index];
-    constColumns[index] = { id: constant.id, type: constant.type, index: dataset.columns.length + index, value: undefined, size: undefined, encoding: undefined };
+    constColumns[index] = { id: constant.id, type: constant.type, index };
   }
   dataset.constColumns = constColumns;
   while (true) {
@@ -229,7 +261,6 @@ function readDataset(reader: BinaryReader, value: CanonicalValue): void {
     const row = new BinaryReader(reader.take(rowLength - 2));
     const count = row.u16();
     const values: Record<string, CanonicalCell> = {};
-    for (let index = 0; index < dataset.columns.length; index++) values[dataset.columns[index].id] = { state: "empty", lexical: "" };
     for (let index = 0; index < count; index++) {
       const tag = row.u16();
       const wire = readValue(row, tag);
@@ -257,7 +288,8 @@ function readDataset(reader: BinaryReader, value: CanonicalValue): void {
 export function decodeBinaryWire(bytes: Uint8Array, _profile: BinaryProfile): CanonicalValue {
   try {
     const value: CanonicalValue = { parameters: [], datasets: [], saveType: undefined, wire: undefined };
-    if (!bytes.length) return value;
+    // The drivers cannot read an empty PlatformBinary body.
+    if (!bytes.length) throw new Error("empty PlatformBinary payload");
     if (bytes.length > MAX_LENGTH) throw new Error("binary payload exceeds limit");
     const reader = new BinaryReader(bytes);
     let mark = reader.u16();
@@ -269,7 +301,7 @@ export function decodeBinaryWire(bytes: Uint8Array, _profile: BinaryProfile): Ca
       if (mark !== DATASET_MARK) throw new Error("invalid PlatformBinary dataset mark");
       readDataset(reader, value);
     }
-    return value;
+    return finishDecodedValue(value);
   } catch (error) {
     if (error instanceof WireCodecError) throw error;
     throw new WireCodecError("malformed-input", error instanceof Error ? error.message : String(error), "wire");
@@ -309,11 +341,70 @@ function rowCode(type: CanonicalRowType): number {
   }
 }
 
-function epoch(lexical: string): number {
-  if (/^-?\d+$/.test(lexical)) return Number(lexical);
-  if (/^\d{8}$/.test(lexical)) return Date.UTC(Number(lexical.slice(0, 4)), Number(lexical.slice(4, 6)) - 1, Number(lexical.slice(6, 8)));
-  if (/^\d{14}(?:\d{3})?$/.test(lexical)) return Date.UTC(Number(lexical.slice(0, 4)), Number(lexical.slice(4, 6)) - 1, Number(lexical.slice(6, 8)), Number(lexical.slice(8, 10)), Number(lexical.slice(10, 12)), Number(lexical.slice(12, 14)), Number(lexical.slice(14, 17) || 0));
-  throw new Error(`invalid PlatformBinary epoch ${lexical}`);
+/**
+ * Reads the normalized lexical of a date whose year has more than four digits
+ * (formatJavaDate never cuts the year), which javaDate cannot tell apart by
+ * length.
+ */
+function longYearDate(lexical: string, type: string): number | undefined {
+  if (type === "TIME") return undefined;
+  const tail = type === "DATE" ? 4 : 13;
+  if (lexical.length <= tail + 4 || !/^\d+$/.test(lexical)) return undefined;
+  const year = Number(lexical.slice(0, lexical.length - tail));
+  const rest = lexical.slice(lexical.length - tail);
+  const n = (start: number, end: number): number => Number(rest.slice(start, end));
+  const date = new Date(0);
+  date.setUTCFullYear(year, n(0, 2) - 1, n(2, 4));
+  if (tail === 13) date.setUTCHours(n(4, 6), n(6, 8), n(8, 10), n(10, 13));
+  return date.getTime();
+}
+
+/** A date lexical as the epoch milliseconds (UTC) PlatformBinary carries. */
+function epoch(lexical: string, type: string): number {
+  const millis = longYearDate(lexical, type) ?? javaDate(lexical, type);
+  if (millis === undefined) throw new WireCodecError("invalid-value", `invalid PlatformBinary ${type.toLowerCase()} ${lexical}`, "value");
+  return millis;
+}
+
+function binaryInteger(lexical: string): number {
+  const text = lexical.trim().replace(/,/g, "");
+  const hex = /^0[xX]/.test(text);
+  const body = hex ? text.slice(2) : text;
+  if (!(hex ? /^[+-]?[0-9a-fA-F]+$/ : /^[+-]?\d+$/).test(body)) throw new WireCodecError("invalid-value", `invalid PlatformBinary integer ${lexical}`, "value");
+  const negative = body[0] === "-";
+  const digits = body.replace(/^[+-]/, "");
+  const value = BigInt(hex ? `0x${digits}` : digits) * (negative ? -1n : 1n);
+  return Number(BigInt.asIntN(32, value));
+}
+
+/**
+ * A null of a primitive Java type is written as that type's zero; the object
+ * types stay null.
+ */
+function primitiveNullAsZero(type: string, cell: CanonicalCell | undefined): CanonicalCell | undefined {
+  if (cell && cell.state !== "null" && cell.state !== "missing") return cell;
+  switch (defaultType(type)) {
+    case "SHORT": case "USHORT": case "INT": case "UINT": case "LONG": case "ULONG": case "BOOLEAN": case "FLOAT": case "DOUBLE":
+      return { state: "value", lexical: "0" };
+    default:
+      return cell;
+  }
+}
+
+/**
+ * A constant value converted to the column type as the drivers do before
+ * writing it: an empty value converts like any other lexical, so it becomes
+ * zero or null for the non-string types.
+ */
+function constCell(type: string, source: CanonicalCell | undefined): CanonicalCell | undefined {
+  let cell = primitiveNullAsZero(type, source);
+  switch (defaultType(type)) {
+    case "STRING": case "CHAR": case "BLOB": case "FILE": case "UNDEFINED":
+      return cell;
+  }
+  if (!cell) return cell;
+  if (cell.state === "empty") cell = { state: "value", lexical: "" };
+  return normalizeSourceCell(type, cell);
 }
 
 function writeLengthBytes(writer: BinaryWriter, bytes: Uint8Array): void {
@@ -324,10 +415,7 @@ function writeLengthBytes(writer: BinaryWriter, bytes: Uint8Array): void {
 
 function writeTypedValue(writer: BinaryWriter, type: string, cell: CanonicalCell | undefined): void {
   const normalized = defaultType(type);
-  if (normalized === "UNDEFINED" || normalized === "DATASET" || normalized === "INVALID") {
-    throw new WireCodecError("invalid-value", `unsupported PlatformBinary type ${type}`, "");
-  }
-  if (normalized === "NULL" || !cell || cell.state !== "value" && cell.state !== "empty") {
+  if (!cell || cell.state !== "value" && cell.state !== "empty") {
     writer.u16(0);
     return;
   }
@@ -335,6 +423,9 @@ function writeTypedValue(writer: BinaryWriter, type: string, cell: CanonicalCell
   switch (normalized) {
     case "STRING":
     case "CHAR":
+    case "UNDEFINED":
+    case "DATASET":
+    case "INVALID":
       writer.u16(21);
       writeLengthBytes(writer, UTF8_ENCODER.encode(lexical));
       return;
@@ -344,7 +435,7 @@ function writeTypedValue(writer: BinaryWriter, type: string, cell: CanonicalCell
     case "UINT":
     case "BOOLEAN":
       writer.u16(3);
-      writer.i32(Number.parseInt(lexical || "0", 10) || 0);
+      writer.i32(binaryInteger(lexical));
       return;
     case "LONG":
     case "ULONG":
@@ -354,15 +445,18 @@ function writeTypedValue(writer: BinaryWriter, type: string, cell: CanonicalCell
       writeLengthBytes(writer, UTF8_ENCODER.encode(lexical));
       return;
     case "FLOAT":
-    case "DOUBLE":
+    case "DOUBLE": {
+      const number = Number(lexical.trim());
+      if (Number.isNaN(number) && lexical.trim() !== "NaN") throw new WireCodecError("invalid-value", `invalid PlatformBinary number ${lexical}`, "value");
       writer.u16(4);
-      writer.f64(Number(lexical));
+      writer.f64(number);
       return;
+    }
     case "DATE":
     case "TIME":
     case "DATETIME":
       writer.u16(41);
-      writer.f64(epoch(lexical));
+      writer.f64(epoch(lexical, normalized));
       return;
     case "BLOB":
     case "FILE": {
@@ -373,20 +467,26 @@ function writeTypedValue(writer: BinaryWriter, type: string, cell: CanonicalCell
       writeLengthBytes(writer, blob);
       return;
     }
+    case "NULL":
+      writer.u16(0);
+      return;
     default:
-      throw new Error(`unsupported PlatformBinary type ${type}`);
+      throw new WireCodecError("invalid-value", `unsupported PlatformBinary type ${type}`, "value");
   }
 }
 
 function writeDataset(writer: BinaryWriter, dataset: CanonicalDataset): void {
   const header = new BinaryWriter();
-  header.shortString(dataset.id);
+  const alias = typeof dataset.wire?.alias === "string" && dataset.wire.alias ? dataset.wire.alias : dataset.id;
+  header.shortString(alias);
   const constants = new BinaryWriter();
   constants.u16(dataset.constColumns.length);
   for (let index = 0; index < dataset.constColumns.length; index++) {
     const column = dataset.constColumns[index];
     constants.shortString(column.id);
-    writeTypedValue(constants, column.type, column.value);
+    // Constant values stay as given in the text formats; PlatformBinary
+    // writes them converted to the column type.
+    writeTypedValue(constants, column.type, constCell(column.type, column.value));
   }
   const constantBytes = constants.result();
   header.u16(VARIABLE_MARK);
@@ -398,8 +498,10 @@ function writeDataset(writer: BinaryWriter, dataset: CanonicalDataset): void {
     const column = dataset.columns[index];
     header.shortString(column.id);
     header.u16(columnCode(column.type));
-    header.u16(Number(column.size || 0));
-    header.u16(1);
+    header.u16(Number(column.size || wireSize(column.type)) & 0xffff);
+    const sum = (column.prop || "").toUpperCase() === "SUM";
+    header.u16(sum ? 0x6000 : 1);
+    if (sum) header.shortString(column.sumtext || "");
   }
   const headerBytes = header.result();
   writer.u16(DATASET_MARK);
@@ -408,7 +510,6 @@ function writeDataset(writer: BinaryWriter, dataset: CanonicalDataset): void {
   writer.write(headerBytes);
   for (let rowIndex = 0; rowIndex < dataset.rows.length; rowIndex++) {
     const row = dataset.rows[rowIndex];
-    if (row.type === "O") continue;
     const body = new BinaryWriter();
     body.u16(rowCode(row.type));
     body.u16(dataset.columns.length);
@@ -432,8 +533,9 @@ function writeDataset(writer: BinaryWriter, dataset: CanonicalDataset): void {
   writer.u32(0);
 }
 
+/** Writes PlatformBinary as the original drivers do, byte for byte. */
 export function encodeBinaryWire(source: CanonicalValue, _profile: BinaryProfile): Uint8Array {
-  validateCanonical(source, true);
+  validateCanonical(source);
   if (!source.parameters.length && !source.datasets.length) return new Uint8Array();
   const value = normalizeForEncode(source);
   const writer = new BinaryWriter();
@@ -443,7 +545,7 @@ export function encodeBinaryWire(source: CanonicalValue, _profile: BinaryProfile
     for (let index = 0; index < value.parameters.length; index++) {
       const parameter = value.parameters[index];
       block.shortString(parameter.id);
-      writeTypedValue(block, parameter.type, parameter);
+      writeTypedValue(block, parameter.type, primitiveNullAsZero(parameter.type, parameter));
     }
     const bytes = block.result();
     writer.u16(VARIABLE_MARK);

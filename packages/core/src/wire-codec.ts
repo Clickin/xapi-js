@@ -15,8 +15,21 @@ function unpackTransport(source: Uint8Array): Uint8Array {
   }
 }
 
+/** Drops the original rows when the caller opts out of row state. */
+function withoutRowState(value: CanonicalValue, options: WireCodecOptions): CanonicalValue {
+  if (options.preserveRowState !== false) return value;
+  for (let datasetIndex = 0; datasetIndex < value.datasets.length; datasetIndex++) {
+    const rows = value.datasets[datasetIndex].rows;
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) rows[rowIndex].orgRow = null;
+  }
+  return value;
+}
+
 export function decodeWire(source: Uint8Array, profile: WireProfile, options: WireCodecOptions = {}): CanonicalValue {
-  const bytes = unpackTransport(source);
+  return withoutRowState(decodeProfile(unpackTransport(source), profile, options), options);
+}
+
+function decodeProfile(bytes: Uint8Array, profile: WireProfile, options: WireCodecOptions): CanonicalValue {
   if (profile === "nexacro-binary-5000" || profile === "xplatform-binary-5000") return decodeBinaryWire(bytes, profile);
   if (profile === "nexacro-ssv" || profile === "xplatform-ssv") return decodeSsvWire(bytes, profile, options);
   const text = new TextDecoder().decode(bytes);
@@ -24,7 +37,13 @@ export function decodeWire(source: Uint8Array, profile: WireProfile, options: Wi
   return decodeXmlWire(text, profile, options);
 }
 
-export function encodeWire(value: CanonicalValue, profile: WireProfile, options: WireCodecOptions = {}): Uint8Array {
+/**
+ * Encodes like the drivers. Without a saveType the drivers write NORMAL
+ * (plain rows only); preserveRowState asks for ALL instead, so row types,
+ * original rows and deleted rows are written.
+ */
+export function encodeWire(source: CanonicalValue, profile: WireProfile, options: WireCodecOptions = {}): Uint8Array {
+  const value = options.preserveRowState && source.saveType === undefined ? { ...source, saveType: 1 as const } : source;
   let bytes: Uint8Array;
   if (profile === "nexacro-binary-5000" || profile === "xplatform-binary-5000") bytes = encodeBinaryWire(value, profile);
   else if (profile === "nexacro-ssv" || profile === "xplatform-ssv") bytes = encodeSsvWire(value, profile);

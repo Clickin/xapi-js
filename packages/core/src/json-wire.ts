@@ -1,11 +1,10 @@
-import { defaultType, emptyValue, isKnownType, normalizeForEncode, validateCanonical, wireSize, wireType } from "./wire-common";
+import { decodeTypedCell, defaultType, emptyValue, finishDecodedValue, isKnownType, normalizeForEncode, textBlobCell, validateCanonical, wireScalar, wireSize, wireType } from "./wire-common";
 import type { CanonicalCell, CanonicalColumn, CanonicalDataset, CanonicalRowType, CanonicalValue, WireCodecOptions } from "./wire-types";
 import { WireCodecError } from "./wire-types";
 
 type JsonNumber = { readonly number: string };
 type JsonValue = string | boolean | null | JsonNumber | JsonValue[] | JsonObject;
 interface JsonObject { [key: string]: JsonValue }
-const UTF8_ENCODER = new TextEncoder();
 
 class LexicalJsonParser {
   private position = 0;
@@ -146,21 +145,13 @@ function rawCell(value: JsonValue | undefined, exists: boolean): CanonicalCell {
   return lexical === "" && typeof value === "string" ? { state: "empty", lexical: "" } : { state: "value", lexical };
 }
 
+/** A column value converted as the driver's typed setter does (BLOB text is base64-decoded). */
 function typedCell(value: JsonValue | undefined, exists: boolean, type: string): CanonicalCell {
-  const cell = rawCell(value, exists);
-  if (cell.state !== "value" || defaultType(type) !== "BLOB") return cell;
-  const bytes = UTF8_ENCODER.encode(cell.lexical);
-  let binary = "";
-  for (let index = 0; index < bytes.length; index++) binary += String.fromCharCode(bytes[index]);
-  return { state: "value", lexical: btoa(binary) };
+  return decodeTypedCell(rawCell(value, exists), type);
 }
 
-function inferType(value: JsonValue | undefined): string {
-  if (value && typeof value === "object" && "number" in value) return /[.eE]/.test((value as JsonNumber).number) ? "FLOAT" : "INT";
-  return "STRING";
-}
 function decodedType(type: string): string {
-  const normalized = defaultType(type);
+  const normalized = (type || "STRING").toUpperCase();
   if (normalized === "FLOAT") return "DOUBLE";
   if (normalized === "DECIMAL" || !isKnownType(normalized)) return "UNDEFINED";
   return normalized;
@@ -170,27 +161,14 @@ function addJsonColumns(items: JsonValue[], dataset: CanonicalDataset, strict: b
   for (let index = 0; index < items.length; index++) {
     const item = asObject(items[index], "column");
     const id = requiredString(item.id, "column id", strict);
-    const sourceType = typeof item.type === "string" ? item.type : constants ? inferType(item.value) : "STRING";
-    const type = decodedType(sourceType);
+    // The driver reads size as a JSON string and rejects a number.
+    if ("size" in item && typeof item.size !== "string") throw new Error(`column ${id} size must be a string`);
+    const type = decodedType(typeof item.type === "string" ? item.type : "");
     if (constants) {
-      dataset.constColumns.push({
-        id,
-        type,
-        index: 0,
-        value: typedCell(item.value, "value" in item, type),
-        size: undefined,
-        encoding: undefined,
-      });
+      // The JSON reader keeps the constant value string as it is.
+      dataset.constColumns.push({ id, type, index: 0, value: rawCell(item.value, "value" in item) });
     } else {
-      dataset.columns.push({
-        id,
-        type,
-        index: dataset.columns.length,
-        size: undefined,
-        encoding: undefined,
-        prop: undefined,
-        sumtext: undefined,
-      });
+      dataset.columns.push({ id, type, index: dataset.columns.length });
     }
   }
 }
@@ -207,17 +185,20 @@ export function decodeJsonWire(source: string, options: WireCodecOptions = {}): 
     const parsed = new LexicalJsonParser(source).parse();
     const root = asObject(parsed, "root");
     const out = emptyValue();
-    const version = typeof root.version === "string" ? root.version : "1.0";
-    out.wire = { version };
+    if ("version" in root && typeof root.version !== "string") throw new Error("version must be a string");
+    out.wire = { version: "1.0" };
     if ("Parameters" in root) {
       const parameters = asArray(root.Parameters, "Parameters");
       for (let index = 0; index < parameters.length; index++) {
         const item = asObject(parameters[index], "Parameter");
         const id = requiredString(item.id, "Parameter.id", strict);
-        const sourceType = typeof item.type === "string" ? item.type : inferType(item.value);
-        const type = decodedType(sourceType);
-        const cell = typedCell(item.value, "value" in item, type);
-        out.parameters.push({ id, type, state: cell.state, lexical: cell.lexical, index: undefined, wire: undefined });
+        let type = decodedType(typeof item.type === "string" ? item.type : "");
+        const raw = rawCell(item.value, "value" in item);
+        // Variable.set(String) gives an untyped variable the string type; a
+        // null value is never set, so the type stays undefined.
+        if (type === "UNDEFINED" && raw.state !== "null") type = "STRING";
+        const cell = defaultType(type) === "BLOB" ? textBlobCell(raw) : decodeTypedCell(raw, type);
+        out.parameters.push({ id, type, state: cell.state, lexical: cell.lexical });
       }
     }
     if ("Datasets" in root) {
@@ -245,8 +226,11 @@ export function decodeJsonWire(source: string, options: WireCodecOptions = {}): 
               continue;
             }
             if (rawType === "O") {
-              if (!dataset.rows.length) throw new Error("orphan original row");
-              if (options.preserveRowState !== false) {
+              if (!dataset.rows.length || dataset.rows[dataset.rows.length - 1].type !== "U") {
+                if (strict) throw new Error("orphan original row");
+                continue;
+              }
+              {
                 const originalValues: Record<string, CanonicalCell> = {};
                 for (let columnIndex = 0; columnIndex < dataset.columns.length; columnIndex++) {
                   const column = dataset.columns[columnIndex];
@@ -282,7 +266,7 @@ export function decodeJsonWire(source: string, options: WireCodecOptions = {}): 
       }
     }
     validateCanonical(out);
-    return out;
+    return finishDecodedValue(out);
   } catch (error) {
     if (error instanceof WireCodecError) throw error;
     throw new WireCodecError("malformed-input", error instanceof Error ? error.message : String(error), "wire");
@@ -299,13 +283,40 @@ function javaHash(value: string): number {
   return (hash ^ (hash >>> 16)) >>> 0;
 }
 
+/**
+ * Escapes like json-simple's JSONValue.escape, which the Nexacro driver uses:
+ * '/' is escaped, U+0000-U+001F, U+007F-U+009F and U+2000-U+20FF become
+ * an upper-case \uXXXX, nothing else is.
+ */
+function jsonString(value: string): string {
+  let out = '"';
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index];
+    const code = value.charCodeAt(index);
+    switch (character) {
+      case '"': out += '\\"'; break;
+      case "\\": out += "\\\\"; break;
+      case "\b": out += "\\b"; break;
+      case "\f": out += "\\f"; break;
+      case "\n": out += "\\n"; break;
+      case "\r": out += "\\r"; break;
+      case "\t": out += "\\t"; break;
+      case "/": out += "\\/"; break;
+      default:
+        if (code <= 0x1f || code >= 0x7f && code <= 0x9f || code >= 0x2000 && code <= 0x20ff) out += `\\u${code.toString(16).toUpperCase().padStart(4, "0")}`;
+        else out += character;
+    }
+  }
+  return `${out}"`;
+}
+
 function javaObject(entries: JavaEntry[]): JavaObject {
   return { entries };
 }
 
 function serializeJava(value: JavaValue): string {
   if (value === null) return "null";
-  if (typeof value === "string") return JSON.stringify(value).replace(/\//g, "\\/");
+  if (typeof value === "string") return jsonString(value);
   if (Array.isArray(value)) {
     let output = "[";
     for (let index = 0; index < value.length; index++) {
@@ -338,7 +349,7 @@ function serializeJava(value: JavaValue): string {
   for (let index = 0; index < count; index++) {
     if (index) output += ",";
     const entry = ordered[index];
-    output += `${JSON.stringify(entry[0])}:${serializeJava(entry[1])}`;
+    output += `${jsonString(entry[0])}:${serializeJava(entry[1])}`;
   }
   return output + "}";
 }
@@ -350,22 +361,17 @@ function columnObject(column: CanonicalColumn): JavaObject {
   return javaObject(entries);
 }
 
-function jsonCell(cell: CanonicalCell): string | undefined {
-  if (cell.state === "empty") return "";
-  if (cell.state !== "value") return undefined;
-  return cell.lexical || "";
-}
-
-function datasetObject(dataset: CanonicalDataset, options: WireCodecOptions): JavaObject {
+function datasetObject(dataset: CanonicalDataset): JavaObject {
   const entries: JavaEntry[] = [["id", dataset.id]];
   const info: JavaEntry[] = [];
   if (dataset.constColumns.length) {
     const constants = new Array<JavaValue>(dataset.constColumns.length);
     for (let index = 0; index < dataset.constColumns.length; index++) {
       const column = dataset.constColumns[index];
-      const values: JavaEntry[] = [["id", column.id], ["type", wireType(column.type)], ["size", column.size === undefined ? wireSize(column.type) : column.size]];
-      const value = column.value && jsonCell(column.value);
-      if (value !== undefined) values.push(["value", value]);
+      const values: JavaEntry[] = [["id", column.id], ["type", wireType(column.type)], ["size", column.size || wireSize(column.type)]];
+      const cell = column.value;
+      if (cell && (cell.state === "value" || cell.state === "empty")) values.push(["value", cell.lexical || ""]);
+      else if (defaultType(column.type) === "BOOLEAN") values.push(["value", "0"]);
       constants[index] = javaObject(values);
     }
     info.push(["ConstColumn", constants]);
@@ -376,46 +382,42 @@ function datasetObject(dataset: CanonicalDataset, options: WireCodecOptions): Ja
     info.push(["Column", columns]);
   }
   if (info.length) entries.push(["ColumnInfo", javaObject(info)]);
+  const row = (type: string, cells: Record<string, CanonicalCell>, saved: boolean): JavaObject => {
+    const values: JavaEntry[] = [["_RowType_", type]];
+    for (let columnIndex = 0; columnIndex < dataset.columns.length; columnIndex++) {
+      const column = dataset.columns[columnIndex];
+      const cell = cells[column.id];
+      // A saved row writes only the cells it has.
+      if (!cell && saved) continue;
+      const value = wireScalar(column.type, cell || { state: "missing" });
+      if (value !== undefined) values.push([column.id, value]);
+    }
+    return javaObject(values);
+  };
   if (dataset.rows.length) {
     const rows: JavaValue[] = [];
     for (let rowIndex = 0; rowIndex < dataset.rows.length; rowIndex++) {
-      const row = dataset.rows[rowIndex];
-      if (row.type === "O") continue;
-      const values: JavaEntry[] = [];
-      for (let columnIndex = 0; columnIndex < dataset.columns.length; columnIndex++) {
-        const column = dataset.columns[columnIndex];
-        const cell = row.values[column.id];
-        const value = cell && jsonCell(cell);
-        if (value !== undefined) values.push([column.id, value]);
-        else if (defaultType(column.type) === "BOOLEAN") values.push([column.id, "0"]);
-      }
-      values.push(["_RowType_", options.preserveRowState ? row.type : "N"]);
-      rows.push(javaObject(values));
-      if (options.preserveRowState && row.orgRow) {
-        const originalValues: JavaEntry[] = [];
-        for (let columnIndex = 0; columnIndex < dataset.columns.length; columnIndex++) {
-          const column = dataset.columns[columnIndex];
-          const value = row.orgRow.values[column.id] && jsonCell(row.orgRow.values[column.id]);
-          if (value !== undefined) originalValues.push([column.id, value]);
-        }
-        originalValues.push(["_RowType_", "O"]);
-        rows.push(javaObject(originalValues));
-      }
+      const current = dataset.rows[rowIndex];
+      rows.push(row(current.type, current.values, false));
+      if (current.orgRow) rows.push(row("O", current.orgRow.values, true));
     }
     entries.push(["Rows", rows]);
   }
   return javaObject(entries);
 }
-export function encodeJsonWire(source: CanonicalValue, options: WireCodecOptions = {}): string {
+
+/** Writes Nexacro JSON as the original driver does, byte for byte. */
+export function encodeJsonWire(source: CanonicalValue, _options: WireCodecOptions = {}): string {
   validateCanonical(source);
   const value = normalizeForEncode(source);
-  const entries: JavaEntry[] = [["version", "1.0"]];
+  const version = typeof value.wire?.version === "string" ? value.wire.version : "1.0";
+  const entries: JavaEntry[] = [["version", version]];
   if (value.parameters.length) {
     const parameters = new Array<JavaValue>(value.parameters.length);
     for (let index = 0; index < value.parameters.length; index++) {
       const parameter = value.parameters[index];
       const item: JavaEntry[] = [["id", parameter.id], ["type", wireType(parameter.type)]];
-      const cell = jsonCell(parameter);
+      const cell = wireScalar(parameter.type, parameter);
       if (cell !== undefined) item.push(["value", cell]);
       parameters[index] = javaObject(item);
     }
@@ -423,7 +425,7 @@ export function encodeJsonWire(source: CanonicalValue, options: WireCodecOptions
   }
   if (value.datasets.length) {
     const datasets = new Array<JavaValue>(value.datasets.length);
-    for (let index = 0; index < value.datasets.length; index++) datasets[index] = datasetObject(value.datasets[index], options);
+    for (let index = 0; index < value.datasets.length; index++) datasets[index] = datasetObject(value.datasets[index]);
     entries.push(["Datasets", datasets]);
   }
   return serializeJava(javaObject(entries));
