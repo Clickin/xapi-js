@@ -11,7 +11,7 @@ XML만 지원하는 단순 파서에 그치지 않고, X-API 호환 wire profile
 - `xapi.operation` 기반 요청·응답 스키마와 TypeScript 타입 추론
 - `INT`, `FLOAT`, `DECIMAL`, `BIGDECIMAL` 등 wire 타입 메타데이터 보존
 - 기존 `XapiRoot`/`Dataset` 저수준 API 지원
-- Nexacro JSON 1.0, Nexacro XML 4000, XPlatform XML 4000, Nexacro/XPlatform SSV, Nexacro/XPlatform Binary 5000 지원
+- Nexacro JSON 1.0, Nexacro XML 4000, XPlatform XML 4000/5000, Nexacro/XPlatform SSV, Nexacro/XPlatform Binary 5000 지원
 - `Uint8Array` 기반 인코딩·디코딩
 - zlib deflate/inflate transport
 - payload, Dataset, row, column, scalar, BLOB 크기 제한
@@ -310,6 +310,7 @@ for (let index = 0; index < wireProfiles.length; index++) {
 | `nexacro-json-1.0` | Nexacro JSON 1.0 | JSON body를 요구하는 Nexacro 연동 |
 | `nexacro-xml-4000` | Nexacro XML 4000 | Nexacro 기본 XML 연동 |
 | `xplatform-xml-4000` | XPlatform XML 4000 | XPlatform XML 연동 |
+| `xplatform-xml-5000` | XPlatform XML 5000 | XPlatform XML 5000 연동 |
 | `nexacro-ssv` | Nexacro SSV | 텍스트 기반 고성능 Dataset 연동 |
 | `xplatform-ssv` | XPlatform SSV | XPlatform SSV 연동 |
 | `nexacro-binary-5000` | Nexacro Binary 5000 | 바이너리 payload를 사용하는 Nexacro 연동 |
@@ -325,6 +326,7 @@ profile:
 
 - `nexacro-xml-4000`
 - `xplatform-xml-4000`
+- `xplatform-xml-5000`
 
 XML은 사람이 읽을 수 있고 기존 X-API 서버와의 호환성이 가장 좋습니다. ColumnInfo, Parameters, Dataset rows, row status와 original row 정보를 XML 구조로 전달합니다. XML 4000/5000 profile은 XPlatform namespace와 버전이 다르므로 상대 서버에 맞는 profile을 선택합니다.
 

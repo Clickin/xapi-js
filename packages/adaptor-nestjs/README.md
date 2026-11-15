@@ -75,6 +75,7 @@ Binary body를 문자열로 변환하지 않도록 Nest의 raw body 설정을 �
 - `nexacro-json-1.0`
 - `nexacro-xml-4000`
 - `xplatform-xml-4000`
+- `xplatform-xml-5000`
 - `nexacro-ssv`
 - `xplatform-ssv`
 - `nexacro-binary-5000`

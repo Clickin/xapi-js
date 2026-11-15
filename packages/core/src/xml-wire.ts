@@ -9,9 +9,10 @@ type XmlElement = {
   selfClosing: boolean;
 };
 
-const XML_NAMESPACES: Record<Extract<WireProfile, "nexacro-xml-4000" | "xplatform-xml-4000">, readonly string[]> = {
+const XML_NAMESPACES: Record<Extract<WireProfile, "nexacro-xml-4000" | "xplatform-xml-4000" | "xplatform-xml-5000">, readonly string[]> = {
   "nexacro-xml-4000": ["http://www.nexacroplatform.com/platform/dataset", "http://www.nexacro.com/platform/dataset"],
-  "xplatform-xml-4000": ["http://www.tobesoft.com/platform/Dataset"],
+  "xplatform-xml-4000": ["http://www.tobesoft.com/platform/Dataset", "http://www.tobesoft.com/platform/dataset"],
+  "xplatform-xml-5000": ["http://www.tobesoft.com/platform/Dataset", "http://www.tobesoft.com/platform/dataset"],
 };
 
 const XML_DEFAULT_SIZES: Record<string, string> = {
@@ -231,7 +232,7 @@ function validateStructure(root: XmlElement): void {
 }
 
 
-function xmlColumnType(type: string | undefined, profile: "nexacro-xml-4000" | "xplatform-xml-4000"): string {
+function xmlColumnType(type: string | undefined, profile: "nexacro-xml-4000" | "xplatform-xml-4000" | "xplatform-xml-5000"): string {
   if (!type) return "UNDEFINED";
   const normalized = defaultType(type);
   switch (normalized) {
@@ -256,7 +257,7 @@ function xmlColumnType(type: string | undefined, profile: "nexacro-xml-4000" | "
   }
 }
 
-function xmlParameterType(type: string | undefined, profile: "nexacro-xml-4000" | "xplatform-xml-4000"): string {
+function xmlParameterType(type: string | undefined, profile: "nexacro-xml-4000" | "xplatform-xml-4000" | "xplatform-xml-5000"): string {
   if (!type) return "STRING";
   const normalized = xmlColumnType(type, profile);
   return normalized === "UNDEFINED" ? "STRING" : normalized;
@@ -303,7 +304,7 @@ function rowType(value: string): CanonicalRowType {
   }
 }
 
-export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xplatform-xml-4000", options: WireCodecOptions = {}): CanonicalValue {
+export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xplatform-xml-4000" | "xplatform-xml-5000", options: WireCodecOptions = {}): CanonicalValue {
   const strict = options.strict ?? true;
   try {
     if (/<!DOCTYPE/i.test(source)) throw new Error("DTD and external entities are forbidden");
@@ -315,7 +316,7 @@ export function decodeXmlWire(source: string, profile: "nexacro-xml-4000" | "xpl
       root: {
         namespace: XML_NAMESPACES[profile][0],
         version: profile === "nexacro-xml-4000" ? "4000" : undefined,
-        ver: profile === "xplatform-xml-4000" ? "4000" : undefined,
+        ver: profile === "xplatform-xml-4000" ? "4000" : profile === "xplatform-xml-5000" ? "5000" : undefined,
       },
     };
 
@@ -482,12 +483,12 @@ function writeXmlConstant(lines: string[], column: CanonicalConstColumn, xplatfo
   lines.push(blob ? `${start}></ConstColumn>` : `${start}/>`);
 }
 
-export function encodeXmlWire(source: CanonicalValue, profile: "nexacro-xml-4000" | "xplatform-xml-4000"): string {
+export function encodeXmlWire(source: CanonicalValue, profile: "nexacro-xml-4000" | "xplatform-xml-4000" | "xplatform-xml-5000"): string {
   validateCanonical(source);
   const value = normalizeForEncode(source);
   const xplatform = profile !== "nexacro-xml-4000";
   const lines: string[] = ['<?xml version="1.0" encoding="UTF-8"?>'];
-  lines.push(xplatform ? '<Root xmlns="http://www.tobesoft.com/platform/Dataset" ver="4000">' : '<Root xmlns="http://www.nexacroplatform.com/platform/dataset">');
+  lines.push(xplatform ? `<Root xmlns="http://www.tobesoft.com/platform/dataset" ver="${profile === "xplatform-xml-5000" ? "5000" : "4000"}">` : '<Root xmlns="http://www.nexacroplatform.com/platform/dataset">');
   if (!value.parameters.length) lines.push("\t<Parameters/>");
   else {
     lines.push("\t<Parameters>");

@@ -5,7 +5,7 @@ import {
   encodeWire,
 } from "../dist/index.js";
 
-const profiles = ["nexacro-json-1.0", "nexacro-xml-4000", "xplatform-xml-4000", "nexacro-ssv", "xplatform-ssv", "nexacro-binary-5000", "xplatform-binary-5000"];
+const profiles = ["nexacro-json-1.0", "nexacro-xml-4000", "xplatform-xml-4000", "xplatform-xml-5000", "nexacro-ssv", "xplatform-ssv", "nexacro-binary-5000", "xplatform-binary-5000"];
 const capabilities = {
   protocolVersion: "1.0",
   implementation: "xapi-js",
